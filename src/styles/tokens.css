@@ -1,0 +1,420 @@
+/* ==========================================================================
+   FRP Tunnel Manager · 设计令牌
+   风格：Swiss 网格骨架 + 机架面板（Swiss Grid × Server Rack）
+   规则：1px 细线、2px 圆角、无投影、平面 LED（只有外扩散光晕）
+   间距只有三档：--sp-1（小）/ --sp-2（中）/ --sp-3（大），
+   所有 padding / margin / gap 只用这三档 + 0，不再出现零散数值。
+   ========================================================================== */
+
+:root {
+  /* ---- 底色 ---- */
+  --bg: #0b0f14;
+  --bg-panel: #0f141b;
+  --bg-raised: #141a22;
+  --bg-hover: #1a212b;
+  --bg-active: #1e2731;
+
+  /* ---- 线 ---- */
+  --line: #222a35;
+  --line-strong: #2c3542;
+  --line-accent: #3a4654;
+
+  /* ---- 文字 ---- */
+  --text: #e6edf3;
+  --text-dim: #a6b3c0;
+  --text-faint: #78879a;
+
+  /* ---- 唯一主题色：状态绿（交互、选中、焦点都用它） ---- */
+  --accent: #22c55e;
+  --accent-soft: rgba(34, 197, 94, 0.12);
+  --accent-line: rgba(34, 197, 94, 0.42);
+
+  /* ---- 语义色（只表达状态，不做装饰） ---- */
+  --amber: #f59e0b;
+  --amber-soft: rgba(245, 158, 11, 0.12);
+  --red: #ef4444;
+  --red-soft: rgba(239, 68, 68, 0.12);
+  --red-line: rgba(239, 68, 68, 0.42);
+
+  /* ---- 三档间距 ---- */
+  --sp-1: 6px;
+  --sp-2: 10px;
+  --sp-3: 16px;
+
+  /* ---- 尺寸 ---- */
+  --radius: 2px;
+  --h-topbar: 48px;
+  --h-statusbar: 26px;
+  --h-row: 30px;
+  --w-rail: 264px;
+  --w-runtime: 300px;
+
+  --font-sans: Inter, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
+
+  /* ---- 字号只有五档：10 / 11.5 / 13 / 15 / 19 ---- */
+  --fs-1: 10px;
+  --fs-2: 11.5px;
+  --fs-3: 13px;
+  --fs-4: 15px;
+  --fs-5: 19px;
+}
+
+html[data-theme="light"] {
+  --bg: #f4f6f8;
+  --bg-panel: #ffffff;
+  --bg-raised: #f8fafb;
+  --bg-hover: #eef2f5;
+  --bg-active: #e6edf3;
+
+  --line: #e2e8f0;
+  --line-strong: #d2dbe5;
+  --line-accent: #bcc8d6;
+
+  --text: #0f172a;
+  --text-dim: #475569;
+  --text-faint: #6b7a8c;
+
+  --accent: #16a34a;
+  --accent-soft: rgba(22, 163, 74, 0.1);
+  --accent-line: rgba(22, 163, 74, 0.42);
+
+  --amber: #d97706;
+  --amber-soft: rgba(217, 119, 6, 0.1);
+  --red: #dc2626;
+  --red-soft: rgba(220, 38, 38, 0.1);
+  --red-line: rgba(220, 38, 38, 0.42);
+}
+
+/* Element Plus 变量对齐（主色 = 主题绿，深色/浅色共用同一套映射）
+   注意：Element Plus 自己在 :root 里定义默认值，普通 html 选择器优先级不够（0,0,1 < 0,1,0），
+   必须用 html:root（0,1,1）才能稳定覆盖，否则下拉框选中项仍是 EP 默认蓝。 */
+html:root {
+  --el-bg-color: var(--bg-panel);
+  --el-bg-color-overlay: var(--bg-raised);
+  --el-fill-color-blank: var(--bg-panel);
+  --el-fill-color-light: var(--bg-hover);
+  --el-fill-color: var(--bg-hover);
+  --el-text-color-primary: var(--text);
+  --el-text-color-regular: var(--text-dim);
+  --el-text-color-secondary: var(--text-faint);
+  --el-border-color: var(--line);
+  --el-border-color-light: var(--line);
+  --el-border-color-lighter: var(--line);
+  --el-border-radius-base: 2px;
+  --el-border-radius-small: 2px;
+  --el-color-primary: var(--accent);
+  --el-color-primary-dark-2: color-mix(in srgb, var(--accent) 82%, #000);
+  --el-color-primary-light-3: color-mix(in srgb, var(--accent) 72%, var(--bg));
+  --el-color-primary-light-5: color-mix(in srgb, var(--accent) 52%, var(--bg));
+  --el-color-primary-light-7: color-mix(in srgb, var(--accent) 32%, var(--bg));
+  --el-color-primary-light-8: color-mix(in srgb, var(--accent) 22%, var(--bg));
+  --el-color-primary-light-9: color-mix(in srgb, var(--accent) 12%, var(--bg));
+  --el-font-family: var(--font-sans);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#app {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-sans);
+  font-size: var(--fs-3);
+  line-height: 1.5;
+  -webkit-font-smoothing: antialiased;
+  overflow: hidden;
+  user-select: none;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-thumb {
+  background: var(--line-strong);
+  border-radius: 0;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: var(--line-accent);
+}
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+/* ---------- 通用排版 ---------- */
+.mono {
+  font-family: var(--font-mono);
+  font-variant-numeric: tabular-nums;
+}
+
+.label {
+  font-size: var(--fs-1);
+  letter-spacing: 0.08em;
+  text-transform: uppercase;
+  color: var(--text-faint);
+}
+
+.muted {
+  color: var(--text-faint);
+}
+
+.divider {
+  height: 1px;
+  background: var(--line);
+}
+
+/* 所有水平行统一：垂直居中 */
+.row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+}
+
+/* ---------- 按钮：统一 plain（描边、透明底） ---------- */
+.btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--sp-1);
+  height: 26px;
+  padding: 0 var(--sp-2);
+  background: transparent;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--text-dim);
+  font-family: inherit;
+  font-size: var(--fs-2);
+  line-height: 1;
+  white-space: nowrap;
+  cursor: pointer;
+  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+}
+.btn:hover:not(:disabled) {
+  color: var(--text);
+  border-color: var(--line-accent);
+  background: var(--bg-hover);
+}
+.btn:active:not(:disabled) {
+  background: var(--bg-active);
+}
+.btn:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
+}
+.btn:disabled {
+  opacity: 0.38;
+  cursor: not-allowed;
+}
+.btn.sm {
+  height: 22px;
+  padding: 0 var(--sp-1);
+  font-size: var(--fs-1);
+}
+.btn.icon {
+  width: 26px;
+  height: 26px;
+  padding: 0;
+}
+.btn.icon.sm {
+  width: 22px;
+  height: 22px;
+}
+.btn.accent {
+  color: var(--accent);
+  border-color: var(--accent-line);
+}
+.btn.accent:hover:not(:disabled) {
+  color: var(--accent);
+  border-color: var(--accent);
+  background: var(--accent-soft);
+}
+.btn.solid {
+  background: var(--accent);
+  border-color: var(--accent);
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 0 10px -3px color-mix(in srgb, var(--accent) 70%, transparent);
+}
+.btn.solid:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 86%, #ffffff);
+  border-color: color-mix(in srgb, var(--accent) 86%, #ffffff);
+  color: #ffffff;
+  box-shadow: 0 0 12px -2px color-mix(in srgb, var(--accent) 82%, transparent);
+}
+.btn.solid:active:not(:disabled) {
+  background: color-mix(in srgb, var(--accent) 80%, #000000);
+  border-color: color-mix(in srgb, var(--accent) 80%, #000000);
+}
+.btn.danger {
+  color: var(--red);
+  border-color: var(--red-line);
+}
+.btn.danger:hover:not(:disabled) {
+  color: var(--red);
+  border-color: var(--red-line);
+  background: var(--red-soft);
+}
+
+/* ---------- 标签：全站统一尺寸 ---------- */
+.tag {
+  display: inline-flex;
+  align-items: center;
+  height: 18px;
+  /* 中文字形在多数字体的行框里视觉偏上 ~1px，用不对称内边距把基线压回来 */
+  padding: 2px var(--sp-1) 0;
+  border: 1px solid var(--line-strong);
+  border-radius: var(--radius);
+  color: var(--text-faint);
+  font-family: var(--font-mono);
+  font-size: var(--fs-1);
+  line-height: 1;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.tag.on {
+  color: var(--accent);
+  border-color: var(--accent-line);
+  background: var(--accent-soft);
+}
+.tag.err {
+  color: var(--red);
+  border-color: var(--red-line);
+  background: var(--red-soft);
+}
+
+/* ---------- Element Plus 微调 ---------- */
+.el-button {
+  border-radius: 2px;
+  font-family: inherit;
+}
+.el-input__wrapper,
+.el-select__wrapper {
+  background: var(--bg-panel);
+  box-shadow: 0 0 0 1px var(--line-strong) inset;
+  border-radius: 2px;
+}
+.el-input__wrapper.is-focus,
+.el-select__wrapper.is-focused {
+  box-shadow: 0 0 0 1px var(--accent) inset;
+}
+.el-tag {
+  border-radius: 2px;
+  font-family: var(--font-mono);
+}
+.el-dialog {
+  border-radius: 2px;
+  border: 1px solid var(--line-strong);
+  background: var(--bg-panel);
+  padding: 0;
+}
+.el-dialog__header {
+  padding: var(--sp-3);
+  margin: 0;
+  border-bottom: 1px solid var(--line);
+}
+.el-dialog__body {
+  padding: var(--sp-3);
+}
+.el-dialog__footer {
+  padding: var(--sp-2) var(--sp-3);
+  border-top: 1px solid var(--line);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  * {
+    animation-duration: 0.001ms !important;
+    transition-duration: 0.001ms !important;
+  }
+}
+
+/* Element Plus 滚动条：细拇指、与文字留边距 */
+.el-scrollbar__bar.is-vertical {
+  width: 6px;
+  right: 2px;
+}
+.el-scrollbar__bar.is-horizontal {
+  height: 6px;
+  bottom: 2px;
+}
+.el-scrollbar__thumb {
+  background: var(--line-strong);
+  opacity: 1;
+}
+.el-scrollbar__thumb:hover {
+  background: var(--text-faint);
+}
+
+/* ==========================================================================
+   通用布局类：pane 内容（.panel）与分区（.section）
+   概述 / 配置 / 运行日志共用，避免每个页面各写一套
+   ========================================================================== */
+.panel {
+  padding: var(--sp-2);
+  display: flex;
+  flex-direction: column;
+  gap: var(--sp-2);
+  min-height: 100%;
+  box-sizing: border-box;
+}
+.panel-flush {
+  padding: 0;
+  gap: 0;
+}
+.section {
+  border: 1px solid var(--line);
+}
+.section-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+  border-bottom: 1px solid var(--line);
+  background: var(--bg-raised);
+}
+.rows {
+  display: flex;
+  flex-direction: column;
+}
+.row {
+  display: grid;
+  grid-template-columns: 88px minmax(0, 1fr);
+  align-items: start;
+  gap: var(--sp-1) var(--sp-2);
+  padding: var(--sp-1) var(--sp-2);
+}
+.row + .row {
+  border-top: 1px solid var(--line);
+}
+.row > label {
+  line-height: 24px;
+  font-size: var(--fs-2);
+  color: var(--text-dim);
+}
+.ctl {
+  min-width: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  align-items: flex-start;
+}
+.ctl > .el-input,
+.ctl > .el-select,
+.ctl > .el-input-number {
+  width: 100%;
+}
+.hint {
+  font-size: var(--fs-1);
+  color: var(--text-faint);
+  line-height: 1.4;
+}

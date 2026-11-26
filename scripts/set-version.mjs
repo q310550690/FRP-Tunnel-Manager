@@ -35,11 +35,12 @@ patchFirstVersion("src-tauri/tauri.conf.json", "tauri.conf.json");
 // Cargo.toml 只改 [package] 段里的第一处 version = "..."
 const cargoFile = resolve(root, "src-tauri/Cargo.toml");
 const cargo = readFileSync(cargoFile, "utf8");
-const patched = cargo.replace(/(\[package\][\s\S]*?\nversion = ")[^"]+(")/, `$1${version}$2`);
-if (patched === cargo) {
+const cargoVersionRe = /(\[package\][\s\S]*?\nversion = ")[^"]+(")/;
+if (!cargoVersionRe.test(cargo)) {
   console.error("[set-version] 没在 src-tauri/Cargo.toml 的 [package] 段里找到 version");
   process.exit(1);
 }
+const patched = cargo.replace(cargoVersionRe, `$1${version}$2`);
 writeFileSync(cargoFile, patched);
 console.log(`[set-version] Cargo.toml：${version}`);
 

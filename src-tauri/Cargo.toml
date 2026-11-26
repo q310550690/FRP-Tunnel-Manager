@@ -32,6 +32,10 @@ encoding_rs = "0.8"
 winreg = "0.52"
 windows-service = "0.7"
 
+# macOS / Linux：服务托管只需要 libc（getuid 定位 gui/<uid> 域、~/.config 里的用户实例）
+[target.'cfg(unix)'.dependencies]
+libc = "0.2"
+
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration
 [profile.release]

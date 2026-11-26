@@ -22,6 +22,13 @@ function copy() {
   navigator.clipboard?.writeText(address.value);
 }
 
+/** 服务标识：Windows 是服务名，macOS 是 launchd Label（com.sxq.frptm.<id>） */
+const serviceId = computed(() => {
+  if (!p.value) return "—";
+  const prefix = store.platformInfo.labelPrefix;
+  return prefix ? `${prefix}${p.value.id}` : p.value.serviceName;
+});
+
 /** 真实事件：取当前项目最近 5 条 frpc 日志 */
 const events = computed(() => {
   const lines = (p.value ? store.logs : []) as string[];
@@ -55,8 +62,8 @@ const events = computed(() => {
 
     <div class="grid">
       <div class="cell">
-        <span class="label">服务名</span>
-        <span class="mono val">{{ p.serviceName }}</span>
+        <span class="label">{{ store.platformInfo.serviceIdLabel }}</span>
+        <span class="mono val">{{ serviceId }}</span>
       </div>
       <div class="cell">
         <span class="label">frp 版本</span>
@@ -141,7 +148,7 @@ const events = computed(() => {
     </div>
     <div v-else class="ok-strip">
       <AppIcon name="shield" :size="14" />
-      隧道由本机服务托管，系统启动时自动拉起；服务异常退出会按 3 秒间隔重试。
+      隧道由本机 {{ store.platformInfo.serviceKind }} 托管，{{ store.platformInfo.autostart }}；异常退出会按 3 秒间隔重试。
     </div>
   </div>
 </template>

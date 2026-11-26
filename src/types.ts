@@ -42,7 +42,7 @@ export interface Project {
   /** 优化项状态：key → 开关/数值 */
   optim?: Record<string, boolean | number>;
   transport?: TransportConfig | null;
-  /** 是否已安装成 Windows 服务（由 SCM 托管运行） */
+  /** 是否已安装成系统服务（Windows 用 SCM，macOS 用 launchd LaunchAgent，均由服务托管运行） */
   serviceInstalled?: boolean;
 }
 

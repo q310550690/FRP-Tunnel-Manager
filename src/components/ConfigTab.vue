@@ -45,6 +45,8 @@ const showRemote = computed(() => isTcp.value && !isStcp.value);
 
 const optims = computed<OptimItem[]>(() => optimsFor(project.value?.templateKey));
 const osOptims = computed(() => optims.value.filter((o) => o.group === "os"));
+/** 「系统与策略」写的是 Windows 注册表，macOS 上整组隐藏 */
+const osSupported = computed(() => store.platformInfo.os === "windows");
 
 const rdpValues = reactive<Record<string, number>>({});
 
@@ -54,7 +56,7 @@ const effectiveTransport = computed<TransportConfig>(() =>
 );
 
 async function loadRdp() {
-  if (!osOptims.value.length) return;
+  if (!osSupported.value || !osOptims.value.length) return;
   const live = await rdpGet();
   for (const o of osOptims.value) {
     const v = live[o.key];
@@ -365,7 +367,7 @@ function save() {
             </div>
           </div>
         </template>
-        <template v-if="osOptims.length">
+        <template v-if="osSupported && osOptims.length">
           <div class="group-label os">系统与策略（写入注册表，需要管理员权限）</div>
           <div v-for="o in osOptims" :key="o.key" class="row">
             <label>{{ o.label }}</label>

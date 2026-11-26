@@ -34,10 +34,10 @@ async function run(fn: () => Promise<void>, ok: string) {
     ElMessage.success(ok);
   } catch (e) {
     const msg = String(e);
-    if (/管理员/.test(msg)) {
+    if (store.platformInfo.needsAdmin && /管理员/.test(msg)) {
       try {
         await ElMessageBox.confirm(
-          "安装 / 卸载 Windows 服务需要管理员权限。是否以管理员身份重新启动本程序？",
+          `安装 / 卸载${store.platformInfo.serviceKind}需要管理员权限。是否以管理员身份重新启动本程序？`,
           "需要管理员权限",
           { confirmButtonText: "以管理员身份重启", cancelButtonText: "取消", type: "warning" },
         );
@@ -66,7 +66,7 @@ function restart() {
 function toggleInstall() {
   if (!p.value) return;
   if (installed.value) void run(() => store.uninstallService(p.value!.id), "服务已卸载");
-  else void run(() => store.installService(p.value!.id), "已安装为 Windows 服务");
+  else void run(() => store.installService(p.value!.id), `已安装为${store.platformInfo.serviceKind}`);
 }
 </script>
 
@@ -81,8 +81,13 @@ function toggleInstall() {
         <span class="tag" :class="{ on: p.state === 'running', err: p.state === 'error' }">
           {{ stateText[p.state] }}
         </span>
-        <span v-if="!store.isAdmin" class="tag" title="安装 / 卸载服务需要管理员权限">非管理员</span>
-        <span v-if="installed" class="tag on" title="由 Windows 服务托管运行">服务</span>
+        <span
+          v-if="store.platformInfo.needsAdmin && !store.isAdmin"
+          class="tag"
+          title="安装 / 卸载服务需要管理员权限"
+          >非管理员</span
+        >
+        <span v-if="installed" class="tag on" :title="`由${store.platformInfo.serviceKind}托管运行`">服务</span>
       </div>
       <div class="actions">
         <button class="btn" :disabled="busy || installed" @click="toggle">

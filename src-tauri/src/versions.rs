@@ -46,6 +46,26 @@ fn asset_url(version: &str, file: &str, mirror: Option<&str>) -> String {
     with_mirror(&raw, mirror)
 }
 
+/// 当前平台对应的 frp 资产标签（GitHub release 压缩包按它区分平台）
+const PLATFORM_TAG: &str = if cfg!(target_os = "macos") {
+    if cfg!(target_arch = "aarch64") {
+        "darwin_arm64"
+    } else {
+        "darwin_amd64"
+    }
+} else if cfg!(windows) {
+    "windows_amd64"
+} else if cfg!(target_arch = "aarch64") {
+    "linux_arm64"
+} else {
+    "linux_amd64"
+};
+
+/// frp 官方 release 压缩包名，如 `frp_0.62.1_darwin_arm64.zip`
+fn zip_name(version: &str) -> String {
+    format!("frp_{version}_{PLATFORM_TAG}.zip")
+}
+
 fn emit(app: &AppHandle, p: VersionProgress) {
     let _ = app.emit("version-progress", p);
 }
@@ -81,7 +101,7 @@ fn verify_checksum(
         Err(_) => return Ok(None),
     };
     let text = resp.into_string().map_err(|e| format!("读取校验文件失败：{e}"))?;
-    let want_name = format!("frp_{ver}_windows_amd64.zip");
+    let want_name = zip_name(ver);
     let expected = text
         .lines()
         .find(|l| l.trim_end().ends_with(&want_name))
@@ -110,7 +130,7 @@ fn install_blocking(
     std::fs::create_dir_all(&dir).map_err(|e| format!("创建版本目录失败：{e}"))?;
     let zip_path = dir.join("download.zip");
     let agent = agent(proxy)?;
-    let url = asset_url(&ver, &format!("frp_{ver}_windows_amd64.zip"), mirror);
+    let url = asset_url(&ver, &zip_name(&ver), mirror);
     emit(
         app,
         VersionProgress {
@@ -177,8 +197,9 @@ fn install_blocking(
             total,
         },
     );
-    let exe_path = dir.join("frpc.exe");
+    let exe_path = dir.join(paths::frpc_name());
     let mut found = false;
+    let want = paths::frpc_name();
     {
         let f = std::fs::File::open(&zip_path).map_err(|e| format!("打开压缩包失败：{e}"))?;
         let mut archive = zip::ZipArchive::new(f).map_err(|e| format!("解析压缩包失败：{e}"))?;
@@ -187,7 +208,7 @@ fn install_blocking(
                 .by_index(i)
                 .map_err(|e| format!("读取压缩包条目失败：{e}"))?;
             let name = entry.name().replace('\\', "/").to_ascii_lowercase();
-            if name.ends_with("/frpc.exe") || name == "frpc.exe" {
+            if name.ends_with(&format!("/{want}")) || name == want {
                 let mut out = std::fs::File::create(&exe_path)
                     .map_err(|e| format!("释放 frpc.exe 失败：{e}"))?;
                 std::io::copy(&mut entry, &mut out).map_err(|e| format!("解压失败：{e}"))?;
@@ -197,7 +218,14 @@ fn install_blocking(
         }
     }
     if !found {
-        return Err("压缩包里没有找到 frpc.exe".into());
+        return Err(format!("压缩包里没有找到 {}", paths::frpc_name()));
+    }
+    // zip 解压不带可执行位，macOS / Linux 上必须补 +x，否则 spawn 会报 Permission denied
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&exe_path, std::fs::Permissions::from_mode(0o755))
+            .map_err(|e| format!("设置 frpc 可执行权限失败：{e}"))?;
     }
     let _ = std::fs::remove_file(&zip_path);
 
@@ -239,7 +267,7 @@ pub fn version_list_local() -> Result<Vec<LocalVersion>, String> {
         if !p.is_dir() {
             continue;
         }
-        let exe = p.join("frpc.exe");
+        let exe = p.join(paths::frpc_name());
         if !exe.exists() {
             continue;
         }

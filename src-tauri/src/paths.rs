@@ -1,13 +1,61 @@
-//! 便携目录约定：一切都在 exe 所在目录下，绝不写 %APPDATA%。
+//! 便携目录约定：一切都在程序所在目录下，绝不写 %APPDATA% / ~/Library。
 use std::path::PathBuf;
 
+/// frpc 可执行文件名（Windows 带 .exe，macOS / Linux 不带后缀）
+pub const fn frpc_name() -> &'static str {
+    if cfg!(windows) {
+        "frpc.exe"
+    } else {
+        "frpc"
+    }
+}
+
 /// 程序根目录（exe 所在目录）
+///
+/// macOS 打包成 `.app` 时，可执行文件在 `Foo.app/Contents/MacOS/` 下，
+/// 这里返回 `Foo.app` 所在的目录：配置、日志、frp 版本都放在 App 旁边。
+/// 一是整个文件夹拷走即可迁移，二是绝不往签名过的 `.app` 内部写文件。
 pub fn base_dir() -> Result<PathBuf, String> {
     let exe = std::env::current_exe().map_err(|e| format!("定位程序目录失败：{e}"))?;
-    Ok(exe
+    let dir = exe
         .parent()
         .ok_or_else(|| "定位程序目录失败".to_string())?
-        .to_path_buf())
+        .to_path_buf();
+    #[cfg(target_os = "macos")]
+    let dir = macos_app_dir(dir)?;
+    Ok(dir)
+}
+
+/// macOS：把 `<...>/Foo.app/Contents/MacOS` 归一成 `Foo.app` 所在目录。
+/// 直接从 DMG 双击运行会落到 AppTranslocation 的随机只读路径，写配置必然失败，
+/// 这里提前给出可操作的中文提示。
+#[cfg(target_os = "macos")]
+fn macos_app_dir(dir: PathBuf) -> Result<PathBuf, String> {
+    use std::path::Path;
+
+    if dir.to_string_lossy().contains("/AppTranslocation/") {
+        return Err("检测到程序在只读的临时位置（App Translocation）运行：请先把 App 拖到「应用程序」或任意本地文件夹，再重新打开。".into());
+    }
+    let is_macos_dir = dir.file_name().map(|n| n == "MacOS").unwrap_or(false);
+    let is_contents = dir
+        .parent()
+        .and_then(Path::file_name)
+        .map(|n| n == "Contents")
+        .unwrap_or(false);
+    if is_macos_dir && is_contents {
+        if let Some(app) = dir.parent().and_then(Path::parent) {
+            let is_app = app
+                .extension()
+                .map(|e| e.eq_ignore_ascii_case("app"))
+                .unwrap_or(false);
+            if is_app {
+                if let Some(parent) = app.parent() {
+                    return Ok(parent.to_path_buf());
+                }
+            }
+        }
+    }
+    Ok(dir)
 }
 
 pub fn config_dir() -> Result<PathBuf, String> {
@@ -67,7 +115,9 @@ pub fn service_exe() -> Result<PathBuf, String> {
     base_dir()?.canonicalize().map_err(|e| format!("解析程序目录失败：{e}"))
 }
 
-/// 某个版本下 frpc.exe 的路径
+/// 某个版本下 frpc 可执行文件的路径
 pub fn frpc_exe(version: &str) -> Result<PathBuf, String> {
-    Ok(versions_dir()?.join(safe_ver(version)?).join("frpc.exe"))
+    Ok(versions_dir()?
+        .join(safe_ver(version)?)
+        .join(frpc_name()))
 }

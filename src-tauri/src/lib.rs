@@ -21,26 +21,33 @@ fn is_elevated() -> bool {
             Ok(o) if o.status.success()
         );
     }
+    // macOS 的 LaunchAgent、Linux 的 systemd 用户单元都以当前登录用户身份运行，
+    // 不需要提权；前端只在「非管理员」时提示，这里恒为 true 可让「服务」相关 UI 正常工作。
     #[cfg(not(windows))]
     {
-        false
+        true
     }
 }
 
 #[tauri::command]
 fn relaunch_elevated(app: tauri::AppHandle) -> Result<(), String> {
-    let exe = std::env::current_exe().map_err(|e| format!("定位程序路径失败：{e}"))?;
-    let script = format!("Start-Process -FilePath '{}' -Verb RunAs", exe.display());
-    let mut cmd = std::process::Command::new("powershell.exe");
-    cmd.args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script]);
+    #[cfg(not(windows))]
+    {
+        let _ = &app;
+        return Err("当前平台不需要管理员权限：服务以当前用户身份运行（macOS 用 launchd，Linux 用 systemd 用户单元）。".into());
+    }
     #[cfg(windows)]
     {
+        let exe = std::env::current_exe().map_err(|e| format!("定位程序路径失败：{e}"))?;
+        let script = format!("Start-Process -FilePath '{}' -Verb RunAs", exe.display());
+        let mut cmd = std::process::Command::new("powershell.exe");
+        cmd.args(["-NoProfile", "-WindowStyle", "Hidden", "-Command", &script]);
         use std::os::windows::process::CommandExt;
         cmd.creation_flags(0x0800_0000);
+        cmd.spawn().map_err(|e| format!("启动管理员实例失败：{e}"))?;
+        app.exit(0);
+        Ok(())
     }
-    cmd.spawn().map_err(|e| format!("启动管理员实例失败：{e}"))?;
-    app.exit(0);
-    Ok(())
 }
 
 #[tauri::command]
@@ -244,13 +251,17 @@ pub fn verify_service(out_path: &str) {
         &mut steps,
         "is-elevated",
         elevated,
-        if elevated { "管理员" } else { "非管理员" },
+        if cfg!(windows) {
+            if elevated { "管理员" } else { "非管理员" }
+        } else {
+            "用户级服务（launchd / systemd），无需管理员权限"
+        },
     );
     if !elevated {
         ok = false;
     }
 
-    let q0 = svc::service_query(name.clone());
+    let q0 = svc::service_query(name.clone(), Some(id.clone()));
     push_res(&mut steps, "query-before", &q0);
 
     let inst = svc::service_install(
@@ -264,31 +275,44 @@ pub fn verify_service(out_path: &str) {
         ok = false;
     }
 
-    std::thread::sleep(std::time::Duration::from_millis(1500));
-    let q1 = svc::service_query(name.clone());
-    let exists = matches!(&q1, Ok(s) if s.ok && s.output.contains("STATE"));
+    // frpc 被拉起需要一点时间：launchd 有 ThrottleInterval，systemd 有 RestartSec
+    std::thread::sleep(std::time::Duration::from_millis(2500));
+    let q1 = svc::service_query(name.clone(), Some(id.clone()));
+    let exists = matches!(&q1, Ok(s) if s.ok);
     push_res(&mut steps, "query-after-install", &q1);
     if !exists {
         ok = false;
     }
+    let running = matches!(&q1, Ok(s) if s.ok && svc::query_running(&s.output));
+    push(
+        &mut steps,
+        "running-after-install",
+        running,
+        if running {
+            "托管进程已进入运行状态"
+        } else {
+            "托管进程未进入运行状态"
+        },
+    );
+    if !running {
+        ok = false;
+    }
 
-    let stop = svc::service_control(name.clone(), "stop".into());
+    let stop = svc::service_control(name.clone(), "stop".into(), Some(id.clone()));
     match &stop {
         Ok(s) => push(&mut steps, "stop", true, &s.output),
-        Err(e) if e.contains("1062") || e.contains("服务没有启动") || e.contains("not active") => {
-            push(&mut steps, "stop", true, "服务已是停止状态，跳过");
-        }
+        Err(e) if svc::already_stopped(e) => push(&mut steps, "stop", true, "服务已是停止状态，跳过"),
         Err(e) => push(&mut steps, "stop", false, e),
     }
     std::thread::sleep(std::time::Duration::from_millis(800));
 
-    let un = svc::service_uninstall(name.clone());
+    let un = svc::service_uninstall(name.clone(), Some(id.clone()));
     if !push_res(&mut steps, "uninstall", &un) {
         ok = false;
     }
     std::thread::sleep(std::time::Duration::from_millis(600));
 
-    let q2 = svc::service_query(name.clone());
+    let q2 = svc::service_query(name.clone(), Some(id.clone()));
     let gone = matches!(&q2, Ok(s) if !s.ok && s.output == "not-installed");
     match &q2 {
         Ok(s) => push(&mut steps, "query-after-uninstall", gone, &s.output),
@@ -326,6 +350,7 @@ pub fn run() {
             proc::proc_logs,
             proc::project_read_log,
             proc::frpc_status,
+            svc::platform_info,
             svc::service_install,
             svc::service_uninstall,
             svc::service_control,

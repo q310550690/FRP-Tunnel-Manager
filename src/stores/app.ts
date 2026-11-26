@@ -23,6 +23,57 @@ export interface ProcInfo {
   uptime: number;
 }
 
+/** 平台能力：后端 `platform_info` 命令的返回，前端据此决定服务相关文案 */
+export interface PlatformInfo {
+  os: string;
+  /** 「Windows 服务」/「LaunchAgent」/「systemd 用户服务」 */
+  serviceKind: string;
+  /** 服务标识字段名：「服务名」/「LaunchAgent」/「systemd 单元」 */
+  serviceIdLabel: string;
+  /** 服务标识前缀（macOS / Linux 为 com.sxq.frptm.，Windows 为空） */
+  labelPrefix: string;
+  /** 「系统启动时自动拉起」/「登录时自动拉起」 */
+  autostart: string;
+  needsAdmin: boolean;
+  configPath: string;
+}
+
+/** 后端返回前的占位值：按 UA 猜一个，避免首屏文案闪成另一个平台 */
+function defaultPlatform(): PlatformInfo {
+  const ua = typeof navigator !== "undefined" ? navigator.userAgent : "";
+  if (/Linux/.test(ua) && !/Android/.test(ua)) {
+    return {
+      os: "linux",
+      serviceKind: "systemd 用户服务",
+      serviceIdLabel: "systemd 单元",
+      labelPrefix: "com.sxq.frptm.",
+      autostart: "登录时自动拉起",
+      needsAdmin: false,
+      configPath: "~/.config/systemd/user/",
+    };
+  }
+  if (/Macintosh|Mac OS X/.test(ua)) {
+    return {
+      os: "macos",
+      serviceKind: "LaunchAgent",
+      serviceIdLabel: "LaunchAgent",
+      labelPrefix: "com.sxq.frptm.",
+      autostart: "登录时自动拉起",
+      needsAdmin: false,
+      configPath: "~/Library/LaunchAgents/",
+    };
+  }
+  return {
+    os: "windows",
+    serviceKind: "Windows 服务",
+    serviceIdLabel: "服务名",
+    labelPrefix: "",
+    autostart: "系统启动时自动拉起",
+    needsAdmin: true,
+    configPath: "",
+  };
+}
+
 interface VersionProgressPayload {
   version: string;
   phase: string;
@@ -94,6 +145,8 @@ export const useAppStore = defineStore("app", () => {
   const tunnelOk = ref<Record<string, boolean>>({});
 
   const isAdmin = ref(false);
+  /** 平台能力（服务形态、自启语义…），由 Rust 侧 platform_info 提供 */
+  const platformInfo = ref<PlatformInfo>(defaultPlatform());
 
   async function checkAdmin() {
     if (!inTauri()) return;
@@ -101,6 +154,15 @@ export const useAppStore = defineStore("app", () => {
       isAdmin.value = await invoke<boolean>("is_elevated");
     } catch {
       isAdmin.value = false;
+    }
+  }
+
+  async function loadPlatform() {
+    if (!inTauri()) return;
+    try {
+      platformInfo.value = await invoke<PlatformInfo>("platform_info");
+    } catch (e) {
+      console.warn("读取平台信息失败：", e);
     }
   }
 
@@ -186,6 +248,7 @@ export const useAppStore = defineStore("app", () => {
     bindEvents();
     await refreshLocalVersions();
     void checkAdmin();
+    void loadPlatform();
     void ensureLogs(selectedId.value);
   }
 
@@ -452,7 +515,9 @@ export const useAppStore = defineStore("app", () => {
     const p = projects.value.find((x) => x.id === id);
     if (!p) return;
     if (p.serviceInstalled) {
-      throw new Error("该项目已安装为 Windows 服务，由服务托管运行；要改成手动启动请先「卸载服务」。");
+      throw new Error(
+        `该项目已安装为${platformInfo.value.serviceKind}，由服务托管运行；要改成手动启动请先「卸载服务」。`,
+      );
     }
     p.state = "starting";
     try {
@@ -492,7 +557,7 @@ export const useAppStore = defineStore("app", () => {
     await startProject(id);
   }
 
-  /** 安装为 Windows 服务：先把 toml 落盘，再交给 SCM */
+  /** 安装为服务：Windows 注册 SCM 服务，macOS 写 launchd LaunchAgent */
   async function installService(id: string): Promise<void> {
     const p = projects.value.find((x) => x.id === id);
     if (!p) return;
@@ -516,7 +581,7 @@ export const useAppStore = defineStore("app", () => {
     const p = projects.value.find((x) => x.id === id);
     if (!p) return;
     if (inTauri()) {
-      await invoke("service_uninstall", { name: p.serviceName });
+      await invoke("service_uninstall", { name: p.serviceName, id: p.id });
     }
     p.serviceInstalled = false;
     p.state = "stopped";
@@ -625,6 +690,8 @@ export const useAppStore = defineStore("app", () => {
     tunnelOk,
     isAdmin,
     checkAdmin,
+    platformInfo,
+    loadPlatform,
     relaunchElevated,
     procPid,
     installProgress,

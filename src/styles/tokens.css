@@ -7,34 +7,34 @@
    ========================================================================== */
 
 :root {
-  /* ---- 底色 ---- */
-  --bg: #0b0f14;
-  --bg-panel: #0f141b;
-  --bg-raised: #141a22;
-  --bg-hover: #1a212b;
-  --bg-active: #1e2731;
+  /* ---- 底色（深色为「抬起的机架」而非纯黑，面板之间靠 1px 线分层） ---- */
+  --bg: #242a33;
+  --bg-panel: #2a313a;
+  --bg-raised: #313842;
+  --bg-hover: #39414d;
+  --bg-active: #424b58;
 
   /* ---- 线 ---- */
-  --line: #222a35;
-  --line-strong: #2c3542;
-  --line-accent: #3a4654;
+  --line: #4a5462;
+  --line-strong: #57616f;
+  --line-accent: #687384;
 
   /* ---- 文字 ---- */
-  --text: #e6edf3;
-  --text-dim: #a6b3c0;
-  --text-faint: #78879a;
+  --text: #eef3f8;
+  --text-dim: #c2cdd8;
+  --text-faint: #a0aebd;
 
   /* ---- 唯一主题色：状态绿（交互、选中、焦点都用它） ---- */
   --accent: #22c55e;
   --accent-soft: rgba(34, 197, 94, 0.12);
   --accent-line: rgba(34, 197, 94, 0.42);
 
-  /* ---- 语义色（只表达状态，不做装饰） ---- */
-  --amber: #f59e0b;
-  --amber-soft: rgba(245, 158, 11, 0.12);
-  --red: #ef4444;
-  --red-soft: rgba(239, 68, 68, 0.12);
-  --red-line: rgba(239, 68, 68, 0.42);
+  /* ---- 语义色（只表达状态，不做装饰；深色底上略提亮以保持 4.5:1） ---- */
+  --amber: #f5a524;
+  --amber-soft: rgba(245, 165, 36, 0.12);
+  --red: #ff9494;
+  --red-soft: rgba(255, 148, 148, 0.14);
+  --red-line: rgba(255, 148, 148, 0.42);
 
   /* ---- 三档间距 ---- */
   --sp-1: 6px;

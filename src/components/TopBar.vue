@@ -16,12 +16,13 @@ const themeLabel = computed(
   () => ({ system: "跟随系统", dark: "深色", light: "浅色" } as const)[store.theme]
 );
 
-const win = getCurrentWindow();
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+/** 浏览器预览（mock 数据）下没有 Tauri 运行时，窗口句柄为空 */
+const win = isTauri ? getCurrentWindow() : null;
 const maximized = ref(false);
 
 async function syncMaximized() {
-  if (!isTauri) return;
+  if (!win) return;
   try {
     maximized.value = await win.isMaximized();
   } catch {
@@ -29,25 +30,25 @@ async function syncMaximized() {
   }
 }
 function minimizeWindow() {
-  if (isTauri) void win.minimize();
+  void win?.minimize();
 }
 function toggleMaximize() {
-  if (!isTauri) return;
+  if (!win) return;
   void win.toggleMaximize().then(syncMaximized);
 }
 function closeWindow() {
-  if (isTauri) void win.close();
+  void win?.close();
 }
 /** 顶栏任意空白处按住左键都能拖动窗口；按钮/输入等交互元素不触发 */
 function onTopbarMouseDown(e: MouseEvent) {
-  if (e.button !== 0 || !isTauri) return;
+  if (e.button !== 0 || !win) return;
   const t = e.target as HTMLElement | null;
   if (t?.closest("button, a, input, textarea, select, [data-no-drag]")) return;
   void win.startDragging();
 }
 let unlisten: (() => void) | undefined;
 onMounted(async () => {
-  if (!isTauri) return;
+  if (!win) return;
   await syncMaximized();
   unlisten = await win.onResized(() => {
     void syncMaximized();

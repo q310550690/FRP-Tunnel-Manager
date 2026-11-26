@@ -42,13 +42,13 @@ jobs:
             args: "--bundles deb,appimage"
 
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
-      - uses: pnpm/action-setup@v4
+      - uses: pnpm/action-setup@v6
         with:
           version: 10
 
-      - uses: actions/setup-node@v4
+      - uses: actions/setup-node@v7
         with:
           node-version: 22
 
@@ -91,7 +91,7 @@ jobs:
 
       # 三平台产物统一交给 release job 汇总，避免三个 job 抢着建同一个 Release
       - name: Upload bundles
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.key }}-bundles
           if-no-files-found: error
@@ -111,11 +111,11 @@ jobs:
     timeout-minutes: 20
     steps:
       # fetch-depth: 0 是为了拿 tag 与提交历史来生成变更清单
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
-      - uses: actions/download-artifact@v4
+      - uses: actions/download-artifact@v8
         with:
           path: artifacts
 
@@ -152,7 +152,7 @@ jobs:
 
           cat notes.md
 
-      - uses: softprops/action-gh-release@v2
+      - uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ github.ref_name }}
           name: FRP Tunnel Manager ${{ github.ref_name }}

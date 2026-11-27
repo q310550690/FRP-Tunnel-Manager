@@ -10,6 +10,7 @@ const props = defineProps<{ modelValue: boolean }>();
 const emit = defineEmits<{ (e: "update:modelValue", v: boolean): void }>();
 const store = useAppStore();
 const picked = ref<string | null>(null);
+const importing = ref(false);
 
 const idx: Record<string, number> = {};
 TEMPLATES.forEach((t, i) => (idx[t.key] = i));
@@ -34,13 +35,52 @@ function create() {
     color: PROJECT_COLORS[store.projects.length % PROJECT_COLORS.length],
     proxy: { name: `${t.key}-${seq}`, ...JSON.parse(JSON.stringify(t.defaults)) },
     serviceName: `FRP Tunnel · ${t.name}`,
-    version: store.defaultVersion,
+    version: store.defaultVersion || store.versions[0] || "",
     state: "stopped",
     updatedAt: "刚刚",
   });
   store.select(id);
+  store.markOnboarded();
   ElMessage({ message: `已创建「${t.name}」，可在配置页调整专属字段`, type: "success", duration: 2200 });
   close();
+}
+
+/** 选择已有的 frpc.toml，按其中的代理创建项目；源文件不改动 */
+async function importProject() {
+  if (importing.value) return;
+  if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
+    ElMessage.warning("浏览器预览无法选择本机文件，请在桌面应用中使用");
+    return;
+  }
+  importing.value = true;
+  try {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const selected = await open({
+      multiple: false,
+      directory: false,
+      title: "选择 frpc.toml",
+      filters: [{ name: "frpc 配置", extensions: ["toml"] }],
+    });
+    if (!selected || Array.isArray(selected)) return;
+    const r = await store.importFrpcToml(selected);
+    if (!r.ok) {
+      ElMessage.error({ message: `导入失败：${r.reason}`, duration: 6000, showClose: true });
+      return;
+    }
+    const summary =
+      r.count === 1 ? `已导入「${r.names?.[0] ?? "项目"}」` : `已导入 ${r.count} 个项目`;
+    const warning = r.warnings?.length ? `；${r.warnings.join("；")}` : "";
+    ElMessage.success({
+      message: summary + warning,
+      duration: warning ? 6000 : 2400,
+      showClose: warning.length > 0,
+    });
+    close();
+  } catch (e) {
+    ElMessage.error({ message: `导入失败：${String(e)}`, duration: 6000, showClose: true });
+  } finally {
+    importing.value = false;
+  }
 }
 </script>
 
@@ -64,6 +104,11 @@ function create() {
         </button>
       </div>
     </template>
+
+    <div v-if="!store.hasInstalledFrp" class="np-note">
+      <AppIcon name="warn" :size="13" />
+      <span>还没有安装 FRP 客户端。项目可以先创建，稍后到「设置 → FRP 版本」安装一个，再回来安装服务。</span>
+    </div>
 
     <div class="tpl-grid">
       <button
@@ -93,6 +138,9 @@ function create() {
         <span class="hint">{{ picked ? "已选择模板" : "请选择一个模板" }}</span>
         <div class="btns">
           <button class="btn" @click="close">取消</button>
+          <button class="btn" :disabled="importing" @click="importProject">
+            <AppIcon name="up" :size="12" />{{ importing ? "导入中…" : "导入项目" }}
+          </button>
           <button class="btn accent" :disabled="!picked" @click="create">创建项目</button>
         </div>
       </div>
@@ -120,6 +168,22 @@ function create() {
   font-size: var(--fs-2);
   color: var(--text-faint);
 }
+.np-note {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin-bottom: var(--sp-2);
+  padding: 8px 10px;
+  font-size: var(--fs-2);
+  line-height: 1.55;
+  color: color-mix(in srgb, var(--amber) 85%, var(--text));
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, var(--line));
+  background: color-mix(in srgb, var(--amber) 8%, transparent);
+  border-radius: var(--radius);
+}
+.np-note :deep(.app-icon) {
+  margin-top: 1px;
+}
 
 .tpl-grid {
   display: grid;
@@ -138,7 +202,7 @@ function create() {
   display: flex;
   flex-direction: column;
   gap: var(--sp-1);
-  transition: border-color 0.15s ease, background-color 0.15s ease;
+  transition: border-color 0.1s ease, background-color 0.1s ease;
 }
 .tpl:hover {
   border-color: var(--line-accent);

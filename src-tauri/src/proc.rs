@@ -129,6 +129,22 @@ pub fn project_read_log(id: String) -> Result<Vec<String>, String> {
     Ok(lines[start..].to_vec())
 }
 
+/// 删除项目目录（frpc.toml 与日志）；进程若还在跑先停掉
+#[tauri::command]
+pub fn project_delete(id: String, state: State<'_, Procs>) -> Result<(), String> {
+    let id = paths::safe_id(&id)?;
+    let entry = state.0.lock().unwrap().remove(&id);
+    if let Some(mut e) = entry {
+        let _ = e.child.kill();
+        let _ = e.child.wait();
+    }
+    let dir = paths::project_dir(&id)?;
+    if dir.exists() {
+        std::fs::remove_dir_all(&dir).map_err(|e| format!("删除项目目录失败：{e}"))?;
+    }
+    Ok(())
+}
+
 /// 启动项目：写 toml → 校验 frpc.exe → spawn → 管道日志
 #[tauri::command]
 pub fn proc_start(

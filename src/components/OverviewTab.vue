@@ -13,12 +13,17 @@ const tunnel = computed(() => (p.value ? store.tunnelOk[p.value.id] : null));
 const address = computed(() => {
   if (!p.value) return "—";
   const t = p.value.proxy.type;
-  if (t === "http" || t === "https") return `https://${p.value.proxy.customDomain ?? "—"}`;
+  if (t === "http" || t === "https") {
+    if (!srv.value.addr) return "未配置服务器";
+    return p.value.proxy.customDomain ? `https://${p.value.proxy.customDomain}` : "未配置域名";
+  }
   if (t === "stcp" || t === "xtcp") return "点对点（无需公网端口）";
+  if (!srv.value.addr) return "未配置服务器";
   return `${srv.value.addr}:${p.value.proxy.remotePort ?? "—"}`;
 });
 
 function copy() {
+  if (!address.value || address.value === "—" || address.value.startsWith("未配置")) return;
   navigator.clipboard?.writeText(address.value);
 }
 
@@ -66,8 +71,8 @@ const events = computed(() => {
         <span class="mono val">{{ serviceId }}</span>
       </div>
       <div class="cell">
-        <span class="label">frp 版本</span>
-        <span class="mono val">{{ p.version }}</span>
+        <span class="label">frp 版本{{ !p.version && store.defaultVersion ? "（全局）" : "" }}</span>
+        <span class="mono val">{{ p.version || store.defaultVersion || "未安装" }}</span>
       </div>
       <div class="cell">
         <span class="label">本地监听</span>
@@ -114,7 +119,7 @@ const events = computed(() => {
       <div class="tunnel-body">
         <div class="kv"><span>代理类型</span><b class="mono up">{{ p.proxy.type }}</b></div>
         <div class="kv"><span>公网端口</span><b class="mono">{{ p.proxy.remotePort ?? "—" }}</b></div>
-        <div class="kv"><span>服务器</span><b class="mono">{{ srv.addr }}:{{ srv.port }}</b></div>
+        <div class="kv"><span>服务器</span><b class="mono">{{ srv.addr ? `${srv.addr}:${srv.port}` : "未配置服务器" }}</b></div>
         <div class="kv">
           <span>传输</span>
           <b class="mono">{{ srv.protocol.toUpperCase() }}{{ srv.tls ? " · TLS" : "" }}</b>

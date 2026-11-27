@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { computed, ref } from "vue";
+import { computed, nextTick, ref, watch } from "vue";
 import { ElMessage, ElMessageBox } from "element-plus";
+import type { ScrollbarInstance } from "element-plus";
 import { useAppStore } from "@/stores/app";
 import type { IconName } from "@/icons";
 import type { ServiceState } from "@/types";
@@ -10,8 +11,26 @@ import ConfigTab from "./ConfigTab.vue";
 import LogsTab from "./LogsTab.vue";
 
 const store = useAppStore();
+const emit = defineEmits<{
+  (e: "new-project"): void;
+  (e: "open-guide"): void;
+}>();
 const p = computed(() => store.selected);
 const busy = ref(false);
+const ovScroll = ref<ScrollbarInstance>();
+const cfgScroll = ref<ScrollbarInstance>();
+const logScroll = ref<ScrollbarInstance>();
+
+/** 切换项目时三个滚动区都回到顶部，避免继承上一个项目的位置 */
+watch(
+  () => store.selectedId,
+  async () => {
+    await nextTick();
+    ovScroll.value?.setScrollTop(0);
+    cfgScroll.value?.setScrollTop(0);
+    logScroll.value?.setScrollTop(0);
+  },
+);
 
 const stateText: Record<ServiceState, string> = {
   running: "运行中",
@@ -55,18 +74,91 @@ async function run(fn: () => Promise<void>, ok: string) {
 
 function toggle() {
   if (!p.value) return;
-  if (running.value) void run(() => store.stopProject(p.value!.id), "已停止");
-  else void run(() => store.startProject(p.value!.id), "已启动，正在连接服务器…");
+  if (running.value) {
+    void run(() => store.stopProject(p.value!.id), "已停止");
+    return;
+  }
+  const miss = missingFrpVersion();
+  if (miss !== null) {
+    void needFrp(miss);
+    return;
+  }
+  void run(() => store.startProject(p.value!.id), "已启动，正在连接服务器…");
 }
 
 function restart() {
-  if (p.value) void run(() => store.restartProject(p.value!.id), "已重启");
+  if (!p.value) return;
+  const miss = missingFrpVersion();
+  if (miss !== null) {
+    void needFrp(miss);
+    return;
+  }
+  void run(() => store.restartProject(p.value!.id), "已重启");
 }
 
 function toggleInstall() {
   if (!p.value) return;
-  if (installed.value) void run(() => store.uninstallService(p.value!.id), "服务已卸载");
-  else void run(() => store.installService(p.value!.id), `已安装为${store.platformInfo.serviceKind}`);
+  if (installed.value) {
+    void run(() => store.uninstallService(p.value!.id), "服务已卸载");
+    return;
+  }
+  const miss = missingFrpVersion();
+  if (miss !== null) {
+    void needFrp(miss);
+    return;
+  }
+  void run(() => store.installService(p.value!.id), `已安装为${store.platformInfo.serviceKind}`);
+}
+
+/** 项目当前版本是否可用；不可用时返回版本号（空串表示完全没装） */
+function missingFrpVersion(): string | null {
+  const proj = p.value;
+  if (!proj) return null;
+  if (!proj.version && store.defaultVersion) proj.version = store.defaultVersion;
+  if (store.isVersionInstalled(proj.version)) return null;
+  return proj.version || "";
+}
+
+async function removeProject() {
+  const proj = p.value;
+  if (!proj) return;
+  if (proj.serviceInstalled) {
+    ElMessage.warning("请先卸载服务，再删除项目");
+    return;
+  }
+  const extra = running.value ? "项目正在运行，删除前会先停止。" : "";
+  try {
+    await ElMessageBox.confirm(
+      `删除「${proj.name}」后，本地的 frpc.toml 与运行日志会一并删除，且无法恢复。${extra}`,
+      "删除项目",
+      {
+        confirmButtonText: "删除",
+        cancelButtonText: "取消",
+        type: "warning",
+        confirmButtonClass: "el-button--danger",
+      },
+    );
+  } catch {
+    return;
+  }
+  const id = proj.id;
+  await run(() => store.deleteProject(id), "项目已删除");
+}
+
+/** 未安装 frpc 时的统一提示：确认后直接跳到设置页的 FRP 版本区 */
+async function needFrp(version: string) {
+  const text = version
+    ? `检测到项目使用的 frp ${version} 尚未安装。请先在「设置 → FRP 版本」里安装一个，再回来启动项目或安装服务。`
+    : "检测到 FRP 未安装，请先安装一个。安装完成后回到这里，就能启动项目或安装服务。";
+  try {
+    await ElMessageBox.alert(text, "需要先安装 FRP 客户端", {
+      confirmButtonText: "去安装",
+      type: "warning",
+    });
+  } catch {
+    return;
+  }
+  store.openSettings("frp");
 }
 </script>
 
@@ -76,7 +168,7 @@ function toggleInstall() {
     <header class="dhead">
       <div class="title-row">
         <span class="p-ico"><AppIcon :name="iconName" :size="16" /></span>
-        <h1>{{ p.name }}</h1>
+        <h1>{{ p.proxy.name || p.name }}</h1>
         <span class="tag">{{ p.template }}</span>
         <span class="tag" :class="{ on: p.state === 'running', err: p.state === 'error' }">
           {{ stateText[p.state] }}
@@ -102,6 +194,10 @@ function toggleInstall() {
           <AppIcon :name="installed ? 'uninstall' : 'install'" :size="13" />
           {{ installed ? "卸载服务" : "安装服务" }}
         </button>
+        <button class="btn danger" :disabled="busy" title="删除项目及本地配置与日志" @click="removeProject">
+          <AppIcon name="trash" :size="13" />
+          删除
+        </button>
       </div>
     </header>
 
@@ -113,7 +209,7 @@ function toggleInstall() {
           <span class="hint mono">{{ p.proxy.name }}</span>
           <span id="ov-actions" class="pane-actions"></span>
         </div>
-        <div class="pane-body"><el-scrollbar><OverviewTab /></el-scrollbar></div>
+        <div class="pane-body"><el-scrollbar ref="ovScroll"><OverviewTab /></el-scrollbar></div>
       </section>
 
       <section class="pane pane-config">
@@ -122,7 +218,7 @@ function toggleInstall() {
           <span class="hint mono">frpc.toml</span>
           <span id="cfg-actions" class="pane-actions"></span>
         </div>
-        <div class="pane-body"><el-scrollbar><ConfigTab /></el-scrollbar></div>
+        <div class="pane-body"><el-scrollbar ref="cfgScroll"><ConfigTab /></el-scrollbar></div>
       </section>
     </div>
 
@@ -142,8 +238,30 @@ function toggleInstall() {
           </button>
         </span>
       </div>
-      <div class="pane-body"><el-scrollbar><LogsTab /></el-scrollbar></div>
+      <div class="pane-body"><el-scrollbar ref="logScroll"><LogsTab /></el-scrollbar></div>
     </section>
+  </section>
+
+  <!-- 没有项目 / 没有选中项目时的空状态 -->
+  <section v-else class="detail empty">
+    <div class="empty-wrap">
+      <div class="empty-ico"><AppIcon :name="store.projects.length ? 'inbox' : 'plus'" :size="24" /></div>
+      <h2>{{ store.projects.length ? "选择一个项目" : "还没有项目" }}</h2>
+      <p v-if="store.projects.length">从左侧列表选择要管理的隧道，或者新建一个项目。</p>
+      <p v-else>
+        先安装 frpc、配置服务器，再新建第一条隧道。frpc、配置与日志都放在程序目录，便携、不写系统目录。
+      </p>
+      <div class="empty-actions">
+        <button class="btn accent" @click="emit('new-project')">
+          <AppIcon name="plus" :size="12" />
+          新建项目
+        </button>
+        <button class="btn" @click="emit('open-guide')">
+          <AppIcon name="bolt" :size="12" />
+          新手引导
+        </button>
+      </div>
+    </div>
   </section>
 </template>
 
@@ -249,6 +367,49 @@ h1 {
   min-height: 0;
 }
 
+.detail.empty {
+  align-items: center;
+  justify-content: center;
+  background:
+    radial-gradient(80% 120% at 50% 0%, color-mix(in srgb, var(--accent) 6%, transparent), transparent 60%),
+    var(--bg-panel);
+}
+.empty-wrap {
+  width: min(430px, 86%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  padding: 28px;
+}
+.empty-ico {
+  width: 52px;
+  height: 52px;
+  display: grid;
+  place-items: center;
+  color: var(--accent);
+  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--line));
+  border-radius: var(--radius);
+  background: color-mix(in srgb, var(--accent) 8%, transparent);
+  margin-bottom: 14px;
+}
+.empty-wrap h2 {
+  margin: 0 0 8px;
+  font-size: 17px;
+  font-weight: 600;
+}
+.empty-wrap p {
+  margin: 0;
+  font-size: var(--fs-2);
+  line-height: 1.7;
+  color: var(--text-faint);
+  max-width: 380px;
+}
+.empty-actions {
+  display: flex;
+  gap: 8px;
+  margin-top: 18px;
+}
 @media (max-width: 1200px) {
   .panels {
     grid-template-columns: minmax(0, 1fr) 320px;

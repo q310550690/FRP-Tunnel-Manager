@@ -1,13 +1,19 @@
 <script setup lang="ts">
-import { reactive, ref, watch } from "vue";
-import { ElMessage } from "element-plus";
-import { useAppStore, type ServerConfig } from "@/stores/app";
+import { nextTick, reactive, ref, watch } from "vue";
+import { ElMessage, ElMessageBox } from "element-plus";
+import { invoke } from "@tauri-apps/api/core";
+import { useAppStore, type ExternalFrp, type ServerConfig, type SettingsFocus } from "@/stores/app";
 import AppIcon from "./AppIcon.vue";
 
-const props = defineProps<{ modelValue: boolean }>();
+const props = defineProps<{ modelValue: boolean; focus?: SettingsFocus }>();
 const emit = defineEmits<{ (e: "update:modelValue", v: boolean): void }>();
 
 const store = useAppStore();
+const inTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
+const frpSection = ref<HTMLElement | null>(null);
+const serverSection = ref<HTMLElement | null>(null);
+const flash = ref<SettingsFocus>(null);
+let flashTimer: ReturnType<typeof setTimeout> | undefined;
 
 const draft = reactive<ServerConfig>({ ...store.server });
 const dirPath = ref(store.paths.projects);
@@ -18,17 +24,46 @@ watch(mirrorDraft, (v) => {
   store.updateNetwork({ ...store.network, mirror: v });
 });
 const picked = ref(false);
+const pickingFrpc = ref(false);
+const backupBusy = ref(false);
 
 watch(
   () => props.modelValue,
   (open) => {
-    if (!open) return;
+    if (!open) {
+      flash.value = null;
+      return;
+    }
     Object.assign(draft, store.server);
     dirPath.value = store.paths.projects;
     cfgPath.value = store.paths.config;
     Object.assign(netDraft, store.network);
     mirrorDraft.value = store.network.mirror;
     void store.fetchReleases();
+    // 等弹窗过渡结束再定位，否则 scrollIntoView 会被动画打断
+    setTimeout(() => focusSection(props.focus ?? null), 120);
+  }
+);
+
+/** 打开设置页时定位到指定分区，并短暂高亮，避免用户找不到 */
+function focusSection(focus: SettingsFocus) {
+  if (!focus) return;
+  const el = focus === "frp" ? frpSection.value : serverSection.value;
+  if (!el) return;
+  void nextTick(() => {
+    el.scrollIntoView({ block: "start", behavior: "smooth" });
+    flash.value = focus;
+    clearTimeout(flashTimer);
+    flashTimer = setTimeout(() => {
+      if (flash.value === focus) flash.value = null;
+    }, 1800);
+  });
+}
+
+watch(
+  () => props.focus,
+  (f) => {
+    if (props.modelValue && f) focusSection(f);
   }
 );
 
@@ -99,6 +134,220 @@ async function pickPath(kind: "dir" | "file") {
     savePaths();
   }
 }
+
+function alreadyInRepo(item: ExternalFrp) {
+  return store.versionList.some((v) => v.version === item.version && v.installed);
+}
+
+async function takeOver(item: ExternalFrp) {
+  try {
+    await ElMessageBox.confirm(
+      `将 ${item.path} 复制到程序目录 versions/${item.version}/，之后就能和内置版本一样启动项目、安装服务。原文件不会被修改。`,
+      "接管外部 frp",
+      { confirmButtonText: "接管", cancelButtonText: "取消" },
+    );
+  } catch {
+    return;
+  }
+  const r = await store.takeOverExternal(item);
+  if (r.ok) {
+    ElMessage({ message: `已接管 frp ${item.version}`, type: "success", duration: 1800 });
+  } else {
+    ElMessage({ message: `接管失败：${r.reason}`, type: "error", duration: 8000, showClose: true });
+  }
+}
+
+function reopenGuide() {
+  close();
+  store.openGuide();
+}
+
+/** 自动扫描找不到时，手动指定一个 frpc[.exe]：先只读探测版本，确认后再复制进版本库 */
+async function pickFrpcFile() {
+  if (pickingFrpc.value) return;
+  if (!inTauri) {
+    ElMessage({
+      message: "浏览器预览无法读取本机文件，请在桌面应用中选择",
+      type: "warning",
+      duration: 2400,
+    });
+    return;
+  }
+  pickingFrpc.value = true;
+  try {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const selected = await open({
+      directory: false,
+      multiple: false,
+      title: "选择 frpc 可执行文件",
+      filters:
+        store.platformInfo.os === "windows"
+          ? [{ name: "frpc 可执行文件", extensions: ["exe"] }]
+          : undefined,
+    });
+    if (typeof selected !== "string" || !selected) return;
+
+    const r = await store.probeExternalFile(selected);
+    if (!r.ok || !r.item) {
+      ElMessage({
+        message: `读取失败：${r.reason ?? "未知错误"}`,
+        type: "error",
+        duration: 8000,
+        showClose: true,
+      });
+      return;
+    }
+    if (alreadyInRepo(r.item)) {
+      ElMessage({
+        message: `frp ${r.item.version} 已经在版本库里了，可在上面的列表里设为默认`,
+        type: "info",
+        duration: 3000,
+      });
+      return;
+    }
+    await takeOver(r.item);
+  } catch (e) {
+    ElMessage({
+      message: `选择文件失败：${String(e)}`,
+      type: "error",
+      duration: 6000,
+      showClose: true,
+    });
+  } finally {
+    pickingFrpc.value = false;
+  }
+}
+
+/** 导出文件名带日期，避免多次导出互相覆盖 */
+function configFileName() {
+  const d = new Date();
+  const pad = (n: number) => String(n).padStart(2, "0");
+  return `frp-tunnel-manager-${d.getFullYear()}${pad(d.getMonth() + 1)}${pad(d.getDate())}-${pad(
+    d.getHours(),
+  )}${pad(d.getMinutes())}.json`;
+}
+
+function downloadInBrowser(content: string, filename: string) {
+  const url = URL.createObjectURL(new Blob([content], { type: "application/json" }));
+  const a = document.createElement("a");
+  a.href = url;
+  a.download = filename;
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  setTimeout(() => URL.revokeObjectURL(url), 1000);
+}
+
+/** 导出项目、服务器、网络、目录与默认版本；不含运行状态 */
+async function exportConfig() {
+  if (backupBusy.value) return;
+  backupBusy.value = true;
+  try {
+    const content = store.exportConfigJson();
+    const filename = configFileName();
+    if (!inTauri) {
+      downloadInBrowser(content, filename);
+      ElMessage({ message: "配置已导出", type: "success", duration: 1800 });
+      return;
+    }
+    const { save } = await import("@tauri-apps/plugin-dialog");
+    const path = await save({
+      defaultPath: filename,
+      filters: [{ name: "JSON 配置", extensions: ["json"] }],
+    });
+    if (typeof path !== "string" || !path) return;
+    await invoke("config_write_file", { path, content });
+    ElMessage({ message: "配置已导出", type: "success", duration: 1800 });
+  } catch (e) {
+    ElMessage({
+      message: `导出失败：${String(e)}`,
+      type: "error",
+      duration: 6000,
+      showClose: true,
+    });
+  } finally {
+    backupBusy.value = false;
+  }
+}
+
+/** 导入配置：只覆盖应用配置，不删除磁盘上已有的项目目录 */
+async function importConfig() {
+  if (backupBusy.value) return;
+  if (!inTauri) {
+    ElMessage({
+      message: "浏览器预览无法读取本机配置，请在桌面应用中使用导入",
+      type: "warning",
+      duration: 3000,
+    });
+    return;
+  }
+  backupBusy.value = true;
+  try {
+    const { open } = await import("@tauri-apps/plugin-dialog");
+    const selected = await open({
+      directory: false,
+      multiple: false,
+      title: "选择配置文件",
+      filters: [{ name: "JSON 配置", extensions: ["json"] }],
+    });
+    if (typeof selected !== "string" || !selected) return;
+
+    const text = await invoke<string>("config_read_file", { path: selected });
+    const parsed = store.parseConfigText(text);
+    if (!parsed.ok || !parsed.data) {
+      ElMessage({
+        message: `配置无效：${parsed.reason ?? "未知错误"}`,
+        type: "error",
+        duration: 8000,
+        showClose: true,
+      });
+      return;
+    }
+
+    if (store.projects.some((p) => p.serviceInstalled)) {
+      ElMessage({
+        message: "当前有已安装为服务的项目，请先卸载服务再导入配置",
+        type: "warning",
+        duration: 5000,
+      });
+      return;
+    }
+
+    const running = store.projects.filter((p) => p.state === "running" || p.state === "starting");
+    const names = parsed.names?.length ? `包含：${parsed.names.join("、")}` : "";
+    await ElMessageBox.confirm(
+      `将导入 ${parsed.count ?? 0} 个项目${names ? `（${names}）` : ""}，并覆盖当前的服务器、传输、网络、目录与默认版本配置。${
+        running.length ? `当前有 ${running.length} 个项目正在运行，导入前会先停止它们。` : ""
+      }此操作不可撤销，但不会删除磁盘上已有的项目目录。`,
+      "导入配置",
+      { confirmButtonText: "导入", cancelButtonText: "取消", type: "warning" },
+    );
+
+    for (const p of running) await store.stopProject(p.id);
+    const applied = await store.applyConfigData(parsed.data);
+    if (!applied.ok) {
+      ElMessage({
+        message: applied.reason ?? "导入失败",
+        type: "error",
+        duration: 6000,
+        showClose: true,
+      });
+      return;
+    }
+    close();
+    ElMessage({ message: `已导入 ${applied.count ?? 0} 个项目`, type: "success", duration: 2200 });
+  } catch (e) {
+    if (e === "cancel" || e === "close") return;
+    ElMessage({
+      message: `导入失败：${String(e)}`,
+      type: "error",
+      duration: 6000,
+      showClose: true,
+    });
+  } finally {
+    backupBusy.value = false;
+  }
+}
 </script>
 
 <template>
@@ -125,11 +374,13 @@ async function pickPath(kind: "dir" | "file") {
     <el-scrollbar max-height="62vh" class="settings-scroll">
       <div class="settings">
         <!-- FRP 版本 -->
-        <div class="section">
+        <div ref="frpSection" class="section" :class="{ 'focus-flash': flash === 'frp' }">
           <div class="section-head">
             <span class="head-left">
               <span class="label">FRP 版本</span>
-              <span class="tag on mono">默认 {{ store.defaultVersion }}</span>
+              <span v-if="store.defaultVersion" class="tag on mono">默认 {{ store.defaultVersion }}</span>
+              <span v-else-if="store.hasInstalledFrp" class="tag mono">未设置默认</span>
+              <span v-else class="tag err mono">未安装</span>
             </span>
             <span class="hint mono">
               {{
@@ -139,6 +390,12 @@ async function pickPath(kind: "dir" | "file") {
               }}
             </span>
           </div>
+
+          <div v-if="!store.hasInstalledFrp" class="notice">
+            <AppIcon name="warn" :size="13" />
+            <span>检测到 FRP 未安装，请先安装一个。选一个版本点右侧「安装」；如果本机已有 frpc，也可以在下方「外部安装」里扫描或手动选择。</span>
+          </div>
+
           <el-scrollbar max-height="228px" class="repo-scroll">
           <div class="repo">
             <div v-for="v in store.versionList" :key="v.version" class="repo-row">
@@ -168,10 +425,41 @@ async function pickPath(kind: "dir" | "file") {
             <div v-if="store.versionList.length === 0" class="repo-empty hint">没有可用的版本</div>
           </div>
           </el-scrollbar>
+
+          <div class="sub-head">
+            <span class="label">外部安装</span>
+            <span class="hint">扫描或手动指定本机已有的 frpc</span>
+            <span class="spacer" />
+            <button class="btn sm" :disabled="pickingFrpc" @click="pickFrpcFile">
+              <AppIcon name="file" :size="11" />{{ pickingFrpc ? "读取中…" : "选择 frpc…" }}
+            </button>
+            <button class="btn sm" :disabled="store.externalScanning" @click="store.scanExternal()">
+              <AppIcon name="refresh" :size="11" :class="{ spin: store.externalScanning }" />
+              重新扫描
+            </button>
+          </div>
+          <div v-if="!inTauri" class="ext-note hint">
+            浏览器预览无法扫描本机；桌面版会检查 PATH 与常见安装目录。
+          </div>
+          <div v-else-if="store.externalScanning && !store.externalScanned" class="ext-note hint">
+            正在扫描 PATH 与常见安装目录…
+          </div>
+          <div v-else-if="store.externalVersions.length === 0" class="ext-note hint">
+            {{ store.externalScanned ? "没有检测到外部安装的 frpc。" : "尚未扫描。" }}
+          </div>
+          <div v-for="e in store.externalVersions" :key="e.path" class="ext-row">
+            <span class="tag on mono">外部</span>
+            <span class="mono ver">{{ e.version }}</span>
+            <span class="mono ext-path" :title="e.path">{{ e.path }}</span>
+            <span class="tag">{{ e.source }}</span>
+            <span class="spacer" />
+            <span v-if="alreadyInRepo(e)" class="hint">已在版本库</span>
+            <button v-else class="btn sm" @click="takeOver(e)">接管</button>
+          </div>
         </div>
 
         <!-- 全局服务器 -->
-        <div class="section">
+        <div ref="serverSection" class="section" :class="{ 'focus-flash': flash === 'server' }">
           <div class="section-head"><span class="label">全局服务器</span></div>
           <div class="rows">
             <div class="row">
@@ -314,6 +602,47 @@ async function pickPath(kind: "dir" | "file") {
             </div>
           </div>
         </div>
+
+        <!-- 配置备份 -->
+        <div class="section">
+          <div class="section-head">
+            <span class="label">配置备份</span>
+            <span class="tag">JSON</span>
+          </div>
+          <div class="rows">
+            <div class="row">
+              <label>导入 / 导出</label>
+              <div class="ctl backup-ctl">
+                <button class="btn" :disabled="backupBusy" @click="exportConfig">
+                  <AppIcon name="down" :size="12" />导出配置
+                </button>
+                <button class="btn" :disabled="backupBusy" @click="importConfig">
+                  <AppIcon name="up" :size="12" />导入配置
+                </button>
+                <span class="hint">
+                  把项目、服务器、网络与目录设置保存成一个 JSON 文件，换机或重装后可以恢复。文件内含服务器 token，请妥善保管。
+                </span>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- 帮助 -->
+        <div class="section">
+          <div class="section-head"><span class="label">帮助</span></div>
+          <div class="rows">
+            <div class="row">
+              <label>新手引导</label>
+              <div class="ctl">
+                <button class="btn" @click="reopenGuide">
+                  <AppIcon name="bolt" :size="12" />
+                  重新查看引导
+                </button>
+                <span class="hint">回顾「配置服务器 → 安装 frpc → 新建项目」三步。</span>
+              </div>
+            </div>
+          </div>
+        </div>
       </div>
     </el-scrollbar>
   </el-dialog>
@@ -382,6 +711,86 @@ async function pickPath(kind: "dir" | "file") {
 .repo-empty {
   padding: var(--sp-2);
 }
+
+.notice {
+  display: flex;
+  align-items: flex-start;
+  gap: 8px;
+  margin: var(--sp-2) var(--sp-2);
+  padding: 8px 10px;
+  font-size: var(--fs-2);
+  line-height: 1.55;
+  color: color-mix(in srgb, var(--amber) 85%, var(--text));
+  border: 1px solid color-mix(in srgb, var(--amber) 35%, var(--line));
+  background: color-mix(in srgb, var(--amber) 8%, transparent);
+  border-radius: var(--radius);
+}
+.notice :deep(.app-icon) {
+  margin-top: 1px;
+}
+.sub-head {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-1);
+  margin: var(--sp-2) var(--sp-2) 0;
+  padding-top: var(--sp-2);
+  border-top: 1px dashed var(--line);
+}
+.sub-head .spacer {
+  flex: 1;
+}
+.ext-note {
+  padding: var(--sp-1) var(--sp-2) var(--sp-2);
+}
+.ext-row {
+  display: flex;
+  align-items: center;
+  gap: var(--sp-2);
+  height: 38px;
+  padding: var(--sp-1) var(--sp-2);
+  box-shadow: 0 1px 0 var(--line);
+  font-size: var(--fs-2);
+}
+.ext-row:hover {
+  background: var(--bg-hover);
+}
+.ext-path {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  color: var(--text-faint);
+}
+.spin {
+  animation: spin 1s linear infinite;
+}
+.section {
+  border-radius: var(--radius);
+}
+.focus-flash {
+  animation: focus-flash 1.7s ease-out;
+}
+@keyframes focus-flash {
+  0%,
+  55% {
+    box-shadow: 0 0 0 1px var(--accent-line), 0 0 0 4px var(--accent-soft);
+  }
+  100% {
+    box-shadow: 0 0 0 1px transparent, 0 0 0 4px transparent;
+  }
+}
+@keyframes spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .spin,
+  .focus-flash {
+    animation: none;
+  }
+}
 .ctl :deep(.el-input),
 .ctl :deep(.el-select),
 .ctl :deep(.el-input-number) {
@@ -391,6 +800,15 @@ async function pickPath(kind: "dir" | "file") {
   flex-direction: row;
   align-items: center;
   gap: var(--sp-2);
+}
+.backup-ctl {
+  flex-direction: row;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: var(--sp-1);
+}
+.backup-ctl .hint {
+  flex-basis: 100%;
 }
 .path-ctl {
   flex-direction: row;

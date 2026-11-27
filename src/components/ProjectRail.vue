@@ -9,7 +9,10 @@ import LedDot from "./LedDot.vue";
 import type { Project, ServiceState } from "@/types";
 
 const store = useAppStore();
-const emit = defineEmits<{ (e: "new-project"): void }>();
+const emit = defineEmits<{
+  (e: "new-project"): void;
+  (e: "open-guide"): void;
+}>();
 
 const stateText: Record<ServiceState, string> = {
   running: "运行中",
@@ -30,7 +33,11 @@ function colorOf(p: Project, index: number): string {
 
 function endpoint(p: Project) {
   const addr = effectiveServer(p, store.server).addr;
-  if (p.proxy.type === "http" || p.proxy.type === "https") return p.proxy.customDomain ?? "—";
+  if (p.proxy.type === "http" || p.proxy.type === "https") {
+    if (!addr) return "未配置服务器";
+    return p.proxy.customDomain || "未配置域名";
+  }
+  if (!addr) return "未配置服务器";
   return p.proxy.remotePort ? `${addr}:${p.proxy.remotePort}` : "无公网端口";
 }
 
@@ -65,13 +72,15 @@ const list = computed(() => store.filtered);
         <span class="ico"><AppIcon :name="iconOf(p)" :size="16" /></span>
         <div class="meta">
           <div class="line-1">
-            <span class="name">{{ p.name }}</span>
+            <span class="name">{{ p.proxy.name || p.name }}</span>
             <span class="state">
               <LedDot :state="p.state" :size="6" :pulse="false" />
               {{ stateText[p.state] }}
             </span>
           </div>
           <div class="line-2">
+            <span class="kind mono" :title="p.template">{{ p.template }}</span>
+            <span class="sep">·</span>
             <span class="proto mono">{{ p.proxy.type }}</span>
             <span class="sep">·</span>
             <span class="ep mono">{{ endpoint(p) }}</span>
@@ -80,8 +89,20 @@ const list = computed(() => store.filtered);
       </button>
 
       <div v-if="list.length === 0" class="empty">
-        <AppIcon name="inbox" :size="18" />
-        <span>{{ store.query ? `没有匹配「${store.query}」的项目` : "该状态下没有项目" }}</span>
+        <AppIcon :name="store.projects.length === 0 && !store.query ? 'plus' : 'inbox'" :size="18" />
+        <span v-if="store.query">没有匹配「{{ store.query }}」的项目</span>
+        <span v-else-if="store.projects.length === 0">还没有项目，先创建第一条隧道</span>
+        <span v-else>该状态下没有项目</span>
+        <div v-if="store.projects.length === 0 && !store.query" class="empty-actions">
+          <button class="btn sm accent" @click="emit('new-project')">
+            <AppIcon name="plus" :size="11" />
+            新建项目
+          </button>
+          <button class="btn sm" @click="emit('open-guide')">
+            <AppIcon name="bolt" :size="11" />
+            新手引导
+          </button>
+        </div>
       </div>
       </div>
     </el-scrollbar>
@@ -120,7 +141,7 @@ const list = computed(() => store.filtered);
   border: 1px solid var(--line);
   border-radius: var(--radius);
   color: var(--text-faint);
-  transition: border-color 0.15s ease;
+  transition: border-color 0.1s ease;
 }
 .search:focus-within {
   border-color: var(--accent);
@@ -178,7 +199,7 @@ const list = computed(() => store.filtered);
   color: var(--text-dim);
   font-family: inherit;
   cursor: pointer;
-  transition: background-color 0.15s ease, border-color 0.15s ease;
+  transition: background-color 0.1s ease, border-color 0.1s ease;
 }
 .item:hover {
   background: var(--bg-hover);
@@ -243,6 +264,15 @@ const list = computed(() => store.filtered);
   height: 12px;
   line-height: 12px;
 }
+.line-2 .kind {
+  flex: none;
+  max-width: 82px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  letter-spacing: 0.04em;
+  color: var(--text-faint);
+}
 .line-2 .proto {
   flex: none;
   text-transform: uppercase;
@@ -266,5 +296,12 @@ const list = computed(() => store.filtered);
   text-align: center;
   font-size: var(--fs-2);
   color: var(--text-faint);
+}
+.empty-actions {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  margin-top: 8px;
 }
 </style>

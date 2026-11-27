@@ -5,15 +5,224 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <meta name="color-scheme" content="dark light" />
     <title>FRP Tunnel Manager</title>
+    <!-- 启动层：纯内联样式与 DOM，Vite 的 JS 包执行前就能画出来（Swiss Grid × Server Rack）；
+         Vue 挂载后由 src/main.ts 按「最少 520ms」淡出并移除。不使用 id，避免与 Vue 冲突。 -->
+    <style>
+      .ftp-splash {
+        position: fixed;
+        inset: 0;
+        z-index: 2147483000;
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        justify-content: center;
+        margin: 0;
+        background-color: #242a33;
+        background-image:
+          linear-gradient(rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(255, 255, 255, 0.022) 1px, transparent 1px),
+          radial-gradient(115% 85% at 50% 42%, #2d3540 0%, #242a33 55%, #1f252c 100%);
+        background-size: 28px 28px, 28px 28px, 100% 100%;
+        color: #c2cdd8;
+        font-family: Inter, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+        -webkit-font-smoothing: antialiased;
+        user-select: none;
+        opacity: 1;
+        transition: opacity 0.3s ease;
+      }
+      .ftp-splash.boot-hide {
+        opacity: 0;
+        pointer-events: none;
+      }
+
+      .ftp-splash-core {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+      }
+
+      /* 品牌标识：复用 TopBar 的机架拱框 + 状态灯，放大到 68px */
+      .ftp-splash-mark {
+        position: relative;
+        display: grid;
+        place-items: center;
+        width: 68px;
+        height: 68px;
+        margin-bottom: 34px;
+      }
+      .ftp-splash-mark svg {
+        position: relative;
+        z-index: 1;
+        display: block;
+        animation: ftp-splash-breathe 1.8s ease-in-out infinite;
+      }
+      .ftp-splash-led {
+        fill: #22c55e;
+        filter: drop-shadow(0 0 2.4px rgba(34, 197, 94, 0.85));
+      }
+
+      /* 外圈：缓慢脉动的一圈柔光，不旋转 */
+      .ftp-splash-halo {
+        position: absolute;
+        inset: -24px;
+        border: 1px solid rgba(34, 197, 94, 0.22);
+        border-radius: 50%;
+        box-shadow:
+          0 0 28px rgba(34, 197, 94, 0.12),
+          inset 0 0 20px rgba(34, 197, 94, 0.06);
+        opacity: 0.7;
+        animation: ftp-splash-halo 3.4s ease-in-out infinite;
+      }
+
+      .ftp-splash-title {
+        padding-left: 0.14em;
+        font-size: 21px;
+        font-weight: 600;
+        letter-spacing: 0.14em;
+        line-height: 1.2;
+        color: #eef3f8;
+      }
+      .ftp-splash-slogan {
+        margin-top: 12px;
+        padding-left: 0.24em;
+        font-size: 12px;
+        letter-spacing: 0.24em;
+        line-height: 1.4;
+        color: rgba(194, 205, 216, 0.58);
+      }
+
+      /* 底部：正在启动 + 三个依次呼吸的点 */
+      .ftp-splash-foot {
+        position: absolute;
+        bottom: 48px;
+        left: 50%;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+        transform: translateX(-50%);
+        font-size: 11px;
+        letter-spacing: 0.18em;
+        white-space: nowrap;
+        color: rgba(160, 174, 189, 0.7);
+      }
+      .ftp-splash-dots {
+        display: inline-flex;
+        align-items: center;
+        gap: 4px;
+      }
+      .ftp-splash-dots i {
+        width: 4px;
+        height: 4px;
+        border-radius: 50%;
+        background: #22c55e;
+        opacity: 0.5;
+        animation: ftp-splash-dot 1.4s ease-in-out infinite;
+      }
+      .ftp-splash-dots i:nth-child(2) {
+        animation-delay: 0.18s;
+      }
+      .ftp-splash-dots i:nth-child(3) {
+        animation-delay: 0.36s;
+      }
+
+      @keyframes ftp-splash-breathe {
+        0%,
+        100% {
+          transform: scale(1);
+          opacity: 1;
+        }
+        50% {
+          transform: scale(0.94);
+          opacity: 0.86;
+        }
+      }
+      @keyframes ftp-splash-halo {
+        0%,
+        100% {
+          transform: scale(0.94);
+          opacity: 0.5;
+        }
+        50% {
+          transform: scale(1.06);
+          opacity: 0.9;
+        }
+      }
+      @keyframes ftp-splash-dot {
+        0%,
+        100% {
+          opacity: 0.2;
+          transform: scale(0.9);
+        }
+        50% {
+          opacity: 1;
+          transform: scale(1);
+        }
+      }
+
+      /* 浅色系统：底色 #f4f6f8，网格/文字同步换色 */
+      html[data-theme="light"] .ftp-splash {
+        background-color: #f4f6f8;
+        background-image:
+          linear-gradient(rgba(15, 23, 42, 0.04) 1px, transparent 1px),
+          linear-gradient(90deg, rgba(15, 23, 42, 0.04) 1px, transparent 1px),
+          radial-gradient(115% 85% at 50% 42%, #ffffff 0%, #f4f6f8 58%, #edf1f4 100%);
+        color: #475569;
+      }
+      html[data-theme="light"] .ftp-splash-title {
+        color: #0f172a;
+      }
+      html[data-theme="light"] .ftp-splash-slogan {
+        color: rgba(71, 85, 105, 0.6);
+      }
+      html[data-theme="light"] .ftp-splash-foot {
+        color: rgba(107, 122, 140, 0.8);
+      }
+
+      @media (prefers-reduced-motion: reduce) {
+        .ftp-splash,
+        .ftp-splash * {
+          animation: none !important;
+        }
+        .ftp-splash {
+          transition-duration: 0.001ms;
+        }
+      }
+    </style>
     <script>
       (function () {
+        // 记录启动层出现时刻：main.ts 用它计算「最少展示 520ms」
+        window.__FTPM_SPLASH_AT__ = performance.now();
         var dark = window.matchMedia("(prefers-color-scheme: dark)").matches;
         document.documentElement.classList.toggle("dark", dark);
         document.documentElement.setAttribute("data-theme", dark ? "dark" : "light");
       })();
     </script>
   </head>
+
   <body>
+    <div class="ftp-splash" role="status" aria-live="polite" aria-label="正在启动">
+      <div class="ftp-splash-core">
+        <div class="ftp-splash-mark" aria-hidden="true">
+          <span class="ftp-splash-halo"></span>
+          <svg viewBox="0 0 24 24" width="68" height="68" fill="none">
+            <path
+              d="M4.5 18.6v-7.1a7.5 7.5 0 0 1 15 0v7.1"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+            />
+            <circle class="ftp-splash-led" cx="12" cy="15.4" r="1.55" />
+          </svg>
+        </div>
+        <div class="ftp-splash-title">FRP Tunnel Manager</div>
+        <div class="ftp-splash-slogan">一条隧道，连接内外</div>
+      </div>
+      <div class="ftp-splash-foot">
+        <span>正在启动</span>
+        <span class="ftp-splash-dots" aria-hidden="true"><i></i><i></i><i></i></span>
+      </div>
+    </div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>

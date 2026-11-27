@@ -7,10 +7,10 @@ import DetailPanel from "@/components/DetailPanel.vue";
 import StatusBar from "@/components/StatusBar.vue";
 import NewProjectDialog from "@/components/NewProjectDialog.vue";
 import SettingsDialog from "@/components/SettingsDialog.vue";
+import OnboardingGuide from "@/components/OnboardingGuide.vue";
 
 const store = useAppStore();
 const showNew = ref(false);
-const showSettings = ref(false);
 
 const mq = window.matchMedia("(prefers-color-scheme: dark)");
 
@@ -40,14 +40,20 @@ function refresh() {
 
 <template>
   <div class="app">
-    <TopBar @refresh="refresh" @open-settings="showSettings = true" />
+    <TopBar @refresh="refresh" @open-settings="store.openSettings()" />
     <div class="main">
-      <ProjectRail @new-project="showNew = true" />
-      <DetailPanel />
+      <ProjectRail @new-project="showNew = true" @open-guide="store.openGuide()" />
+      <DetailPanel @new-project="showNew = true" @open-guide="store.openGuide()" />
     </div>
     <StatusBar />
+    <OnboardingGuide
+      v-if="store.guideOpen"
+      @close="store.dismissGuide()"
+      @open-settings="(focus) => store.openSettings(focus)"
+      @new-project="showNew = true"
+    />
     <NewProjectDialog v-model="showNew" />
-    <SettingsDialog v-model="showSettings" />
+    <SettingsDialog v-model="store.settingsOpen" :focus="store.settingsFocus" />
   </div>
 </template>
 

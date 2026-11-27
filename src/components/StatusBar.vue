@@ -24,6 +24,8 @@ interface ReleaseInfo {
 const appVersion = ref("0.1.0");
 /** 是否正在请求 GitHub（图标转圈） */
 const checking = ref(false);
+/** 最短转圈时长：请求再快（甚至秒失败）也至少转 0.65s，让点击有可见反馈 */
+const MIN_CHECK_SPIN_MS = 650;
 /** 已检测到的新版本；非空时图标高亮并带红点 */
 const update = ref<ReleaseInfo | null>(null);
 
@@ -129,11 +131,27 @@ async function promptUpdate(info: ReleaseInfo) {
   }
 }
 
+/** 固定时长的等待：与请求并行，保证转圈至少可见 MIN_CHECK_SPIN_MS */
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
 async function checkUpdate(manual: boolean) {
   if (checking.value) return;
   checking.value = true;
   try {
-    const latest = await fetchLatest();
+    // Promise.all 同时等「请求」和「最短转圈」：
+    // 请求秒回 / 秒失败时也要等满 650ms；请求慢则照常等它返回
+    const [outcome] = await Promise.all([
+      fetchLatest().then(
+        (value) => ({ ok: true as const, value }),
+        (error: unknown) => ({ ok: false as const, error })
+      ),
+      wait(MIN_CHECK_SPIN_MS),
+    ]);
+    if (!outcome.ok) throw outcome.error;
+
+    const latest = outcome.value;
     if (isNewer(latest.version, appVersion.value)) {
       update.value = latest;
       await promptUpdate(latest);
@@ -171,18 +189,17 @@ function stamp() {
     <span class="sep" />
     <span class="item">
       <span class="label">全局默认 FRP 版本</span>
-      <span class="mono">{{ store.defaultVersion }}</span>
+      <span class="mono">{{ store.defaultVersion || (store.hasInstalledFrp ? "未设置" : "未安装") }}</span>
     </span>
     <span class="sep" />
     <span class="item">
       <span class="label">配置</span>
-      <span class="mono">config/app.json</span>
+      <span class="mono">config/store.json</span>
     </span>
 
     <span class="flex" />
 
     <span class="item muted">
-      <AppIcon name="refresh" :size="11" />
       <span class="mono">最后刷新 {{ stamp() }}</span>
     </span>
     <span class="sep" />
@@ -197,7 +214,7 @@ function stamp() {
         :disabled="checking"
         @click="checkUpdate(true)"
       >
-        <AppIcon :name="checking ? 'refresh' : 'down'" :size="11" />
+        <AppIcon name="refresh" :size="11" />
         <span v-if="hasUpdate" class="dot" />
       </button>
       <span class="label">版本</span>
@@ -237,24 +254,30 @@ function stamp() {
   flex: 1;
 }
 
-/* 检测更新图标：紧挨版本号，发现新版本时变主题色 + 右上角红点 */
+/* 检测更新图标：紧挨版本号；18×18 圆形热区，发现新版本时变主题色 + 右上角红点 */
 .update {
   position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
-  width: 16px;
-  height: 16px;
+  width: 18px;
+  height: 18px;
   padding: 0;
-  border: 0;
-  border-radius: 3px;
+  border: 1px solid transparent;
+  border-radius: 50%;
   background: transparent;
   color: inherit;
   cursor: pointer;
+  transition: color 0.1s ease, border-color 0.1s ease, background-color 0.1s ease;
 }
 .update:hover:not(:disabled) {
   color: var(--text);
+  border-color: var(--line-strong);
   background: var(--bg-hover);
+}
+.update:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: 1px;
 }
 .update.fresh {
   color: var(--accent);

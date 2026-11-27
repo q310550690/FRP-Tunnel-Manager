@@ -17,7 +17,7 @@ const themeLabel = computed(
 );
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
-/** 浏览器预览（mock 数据）下没有 Tauri 运行时，窗口句柄为空 */
+/** 浏览器预览下没有 Tauri 运行时，窗口句柄为空 */
 const win = isTauri ? getCurrentWindow() : null;
 const maximized = ref(false);
 
@@ -39,12 +39,34 @@ function toggleMaximize() {
 function closeWindow() {
   void win?.close();
 }
+/** 点击状态灯带：清掉筛选/搜索并定位到对应项目，右侧详情随之打开 */
+function openProject(id: string) {
+  store.query = "";
+  if (store.filter !== "all") store.filter = "all";
+  store.select(id);
+}
 /** 顶栏任意空白处按住左键都能拖动窗口；按钮/输入等交互元素不触发 */
-function onTopbarMouseDown(e: MouseEvent) {
+let dragging = false;
+async function onTopbarMouseDown(e: MouseEvent) {
   if (e.button !== 0 || !win) return;
   const t = e.target as HTMLElement | null;
-  if (t?.closest("button, a, input, textarea, select, [data-no-drag]")) return;
-  void win.startDragging();
+  if (!t || t.closest("button, a, input, textarea, select, [data-no-drag]")) return;
+  // 双击交给窗口自带的「最大化/还原」，不在这里拖
+  if (e.detail > 1) return;
+  e.preventDefault();
+  if (dragging) return;
+  dragging = true;
+  try {
+    // Windows 上窗口未激活时，首次按下只用于激活窗口，直接 startDragging 会被忽略，
+    // 用户看到的就是「有时候拖不动」。先聚焦再拖。
+    const focused = await win.isFocused().catch(() => true);
+    if (!focused) await win.setFocus().catch(() => undefined);
+    await win.startDragging();
+  } catch (err) {
+    console.warn("窗口拖动失败：", err);
+  } finally {
+    dragging = false;
+  }
 }
 let unlisten: (() => void) | undefined;
 onMounted(async () => {
@@ -107,24 +129,40 @@ onUnmounted(() => unlisten?.());
       </button>
     </div>
 
-    <div class="rack" title="项目状态灯带">
-      <span
+    <div v-if="store.projects.length" class="rack" title="项目状态灯带，点击定位项目">
+      <button
         v-for="p in store.projects"
         :key="p.id"
+        type="button"
         class="rack-led"
         :data-state="p.state"
         :title="p.name"
-      />
+        :aria-label="`定位到项目 ${p.name}`"
+        @click="openProject(p.id)"
+      >
+        <span class="rack-bar" aria-hidden="true" />
+      </button>
     </div>
 
     <div class="spacer" />
 
-    <button class="server" title="全局服务器与版本设置" @click="emit('open-settings')">
-      <LedDot state="running" :size="7" :pulse="false" />
+    <button
+      class="server"
+      :class="{ unset: !store.server.addr }"
+      :title="store.server.addr ? '全局服务器与版本设置' : '还没有配置服务器，点击去设置'"
+      @click="emit('open-settings')"
+    >
+      <LedDot :state="store.server.addr ? 'running' : 'stopped'" :size="7" :pulse="false" />
       <span class="label">服务器</span>
-      <span class="mono addr">{{ store.server.addr }}:{{ store.server.port }}</span>
-      <span class="tag">{{ store.server.protocol }}</span>
-      <span class="tag">tls</span>
+      <template v-if="store.server.addr">
+        <span class="mono addr">{{ store.server.addr }}:{{ store.server.port }}</span>
+        <span class="tag">{{ store.server.protocol }}</span>
+        <span class="tag">tls</span>
+      </template>
+      <template v-else>
+        <span class="mono addr">未配置</span>
+        <span class="tag err">去设置</span>
+      </template>
     </button>
 
     <button class="btn icon" title="刷新状态" @click="emit('refresh')">
@@ -225,7 +263,7 @@ onUnmounted(() => unlisten?.());
   font-size: var(--fs-2);
   line-height: 1;
   cursor: pointer;
-  transition: color 0.15s ease, border-color 0.15s ease, background-color 0.15s ease;
+  transition: color 0.1s ease, border-color 0.1s ease, background-color 0.1s ease;
 }
 .chip:hover {
   color: var(--text);
@@ -252,22 +290,43 @@ onUnmounted(() => unlisten?.());
   border-right: 1px solid var(--line);
 }
 .rack-led {
+  appearance: none;
+  width: 10px;
+  height: 20px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 0;
+  background: transparent;
+  cursor: pointer;
+}
+.rack-bar {
   width: 4px;
   height: 10px;
   border-radius: 1px;
   background: var(--text-faint);
   opacity: 0.4;
+  transform-origin: center;
+  transition: transform 0.1s ease, opacity 0.1s ease;
 }
-.rack-led[data-state="running"] {
+.rack-led:hover .rack-bar {
+  transform: scaleY(1.1);
+  opacity: 1;
+}
+.rack-led:focus-visible {
+  outline: 1px solid var(--accent);
+  outline-offset: 2px;
+}
+.rack-led[data-state="running"] .rack-bar {
   background: var(--accent);
   opacity: 1;
   box-shadow: 0 0 5px 0 color-mix(in srgb, var(--accent) 55%, transparent);
 }
-.rack-led[data-state="starting"] {
+.rack-led[data-state="starting"] .rack-bar {
   background: var(--amber);
   opacity: 1;
 }
-.rack-led[data-state="error"] {
+.rack-led[data-state="error"] .rack-bar {
   background: var(--red);
   opacity: 1;
   box-shadow: 0 0 5px 0 color-mix(in srgb, var(--red) 55%, transparent);
@@ -290,7 +349,7 @@ onUnmounted(() => unlisten?.());
   font-family: inherit;
   cursor: pointer;
   font-size: var(--fs-2);
-  transition: border-color 0.15s ease, color 0.15s ease;
+  transition: border-color 0.1s ease, color 0.1s ease;
 }
 .server:hover {
   border-color: var(--line-accent);

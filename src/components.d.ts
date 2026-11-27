@@ -24,6 +24,7 @@ declare module 'vue' {
     LedDot: typeof import('./components/LedDot.vue')['default']
     LogsTab: typeof import('./components/LogsTab.vue')['default']
     NewProjectDialog: typeof import('./components/NewProjectDialog.vue')['default']
+    OnboardingGuide: typeof import('./components/OnboardingGuide.vue')['default']
     OverviewTab: typeof import('./components/OverviewTab.vue')['default']
     ProjectRail: typeof import('./components/ProjectRail.vue')['default']
     SettingsDialog: typeof import('./components/SettingsDialog.vue')['default']

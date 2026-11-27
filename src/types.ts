@@ -19,6 +19,35 @@ export interface ProxyConfig {
   secretKey?: string;
 }
 
+/** 后端从 frpc.toml 解析出来的一条代理 */
+export interface ImportedFrpcProxy {
+  name: string;
+  type: ProxyType;
+  localIP: string;
+  localPort: number;
+  remotePort?: number | null;
+  customDomains: string[];
+  subdomain?: string | null;
+  hostHeader?: string | null;
+  httpUser?: string | null;
+  httpPassword?: string | null;
+  secretKey?: string | null;
+}
+
+/** 后端解析 frpc.toml 得到的常用配置 */
+export interface ImportedFrpc {
+  serverAddr: string;
+  serverPort: number;
+  protocol: ServerConfig["protocol"];
+  tls: boolean;
+  authMethod: AuthMethod;
+  token: string;
+  tcpMux: boolean;
+  poolCount: number;
+  heartbeatInterval: number;
+  proxies: ImportedFrpcProxy[];
+}
+
 export interface Project {
   id: string;
   name: string;

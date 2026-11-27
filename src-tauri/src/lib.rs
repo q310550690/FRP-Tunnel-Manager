@@ -1,4 +1,5 @@
 // Learn more about Tauri commands at https://tauri.app/develop/calling-rust/
+pub mod frpc_import;
 pub mod paths;
 pub mod proc;
 pub mod svc;
@@ -103,6 +104,41 @@ fn write_store(json: String) -> Result<String, String> {
     std::fs::write(&tmp, json.as_bytes()).map_err(|e| format!("写入失败：{e}"))?;
     std::fs::rename(&tmp, &p).map_err(|e| format!("保存失败：{e}"))?;
     Ok(p.display().to_string())
+}
+
+/// 配置文件读写上限，避免误选超大文件把界面卡死
+const CONFIG_FILE_LIMIT: u64 = 8 * 1024 * 1024;
+
+/// 导出配置到用户选择的 JSON 文件（路径来自系统保存对话框）
+#[tauri::command]
+fn config_write_file(path: String, content: String) -> Result<(), String> {
+    if content.len() as u64 > CONFIG_FILE_LIMIT {
+        return Err("配置文件超过 8 MB，已取消保存".into());
+    }
+    let p = std::path::Path::new(&path);
+    if p.as_os_str().is_empty() {
+        return Err("保存路径为空".into());
+    }
+    if let Some(dir) = p.parent() {
+        if !dir.as_os_str().is_empty() {
+            std::fs::create_dir_all(dir).map_err(|e| format!("创建目录失败：{e}"))?;
+        }
+    }
+    std::fs::write(p, content.as_bytes()).map_err(|e| format!("写入配置失败：{e}"))
+}
+
+/// 读取用户选择的 JSON 配置文件（路径来自系统打开对话框）
+#[tauri::command]
+fn config_read_file(path: String) -> Result<String, String> {
+    let p = std::path::Path::new(&path);
+    let meta = std::fs::metadata(p).map_err(|e| format!("读取配置失败：{e}"))?;
+    if !meta.is_file() {
+        return Err("选择的不是文件".into());
+    }
+    if meta.len() > CONFIG_FILE_LIMIT {
+        return Err("配置文件超过 8 MB，已取消读取".into());
+    }
+    std::fs::read_to_string(p).map_err(|e| format!("读取配置失败：{e}"))
 }
 
 #[cfg(windows)]
@@ -338,12 +374,19 @@ pub fn run() {
             http_get_text,
             read_store,
             write_store,
+            config_write_file,
+            config_read_file,
+            frpc_import::project_import_toml,
             rdp::rdp_policy_get,
             rdp::rdp_policy_set,
             versions::version_install,
             versions::version_list_local,
             versions::version_remove,
+            versions::version_scan_external,
+            versions::version_probe_file,
+            versions::version_take_over,
             proc::project_write_toml,
+            proc::project_delete,
             proc::proc_start,
             proc::proc_stop,
             proc::proc_info,

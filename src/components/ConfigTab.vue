@@ -2,7 +2,15 @@
 import { computed, reactive, ref, watch } from "vue";
 import { useAppStore } from "@/stores/app";
 import { adminPort } from "@/utils/toml";
-import { templateByKey, type FieldDef, type ProxyType, type ServerConfig, type TransportConfig } from "@/types";
+import {
+  TEMPLATES,
+  templateByKey,
+  type FieldDef,
+  type ProxyType,
+  type ServerConfig,
+  type TransportConfig,
+} from "@/types";
+import { TEMPLATE_ICONS } from "@/icons";
 import { optimsFor, type OptimItem } from "@/optimizations";
 import { isTauri, rdpGet, rdpSet } from "@/services/rdp";
 import { ElMessage } from "element-plus";
@@ -35,6 +43,21 @@ const useOwnTransport = ref(false);
 const transport = reactive<TransportConfig>({ ...store.globalTransport });
 
 const tmpl = computed(() => templateByKey(project.value?.templateKey ?? project.value?.template));
+
+/** 项目类型（模板）可以在配置页随时切换；只改分类和专属字段，不动已有端口/域名 */
+const projectTemplateKey = computed({
+  get: () =>
+    project.value?.templateKey ?? templateByKey(project.value?.template)?.key ?? "",
+  set: (key: string) => {
+    const p = project.value;
+    const tpl = templateByKey(key);
+    if (!p || !tpl) return;
+    p.templateKey = tpl.key;
+    p.template = tpl.name;
+    p.icon = TEMPLATE_ICONS[tpl.key] ?? p.icon;
+  },
+});
+
 /** 公网端口已经并到「映射」里，专属配置只保留其它字段 */
 const fields = computed<FieldDef[]>(() => (tmpl.value?.fields ?? []).filter((f) => f.key !== "remotePort"));
 
@@ -54,6 +77,12 @@ const effectiveServer = computed<ServerConfig>(() => (useOwnServer.value ? { ...
 const effectiveTransport = computed<TransportConfig>(() =>
   useOwnTransport.value ? { ...transport } : store.globalTransport,
 );
+/** 已安装版本 + 项目当前版本（版本被删掉时也不至于显示空白） */
+const versionOptions = computed(() => {
+  const list = [...store.versions];
+  if (form.version && !list.includes(form.version)) list.unshift(form.version);
+  return list;
+});
 
 async function loadRdp() {
   if (!osSupported.value || !osOptims.value.length) return;
@@ -187,12 +216,20 @@ function save() {
           <div class="ctl"><el-input v-model="form.name" size="small" /></div>
         </div>
         <div class="row">
+          <label>类型</label>
+          <div class="ctl">
+            <el-select v-model="projectTemplateKey" size="small" placeholder="选择项目类型">
+              <el-option v-for="t in TEMPLATES" :key="t.key" :label="t.name" :value="t.key" />
+            </el-select>
+          </div>
+        </div>
+        <div class="row">
           <label>frp 版本</label>
           <div class="ctl">
-            <el-select v-model="form.version" size="small">
-              <el-option v-for="v in store.versions" :key="v" :label="v" :value="v" />
+            <el-select v-model="form.version" size="small" :placeholder="store.defaultVersion ? `跟随全局 ${store.defaultVersion}` : '未安装'">
+              <el-option v-for="v in versionOptions" :key="v" :label="v" :value="v" />
             </el-select>
-            <span class="hint">默认跟随全局 {{ store.defaultVersion }}，项目内可单独指定</span>
+            <span class="hint">默认跟随全局 {{ store.defaultVersion || "未安装" }}，项目内可单独指定</span>
           </div>
         </div>
       </div>

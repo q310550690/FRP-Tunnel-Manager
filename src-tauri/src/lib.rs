@@ -3,6 +3,7 @@ pub mod frpc_import;
 pub mod paths;
 pub mod proc;
 pub mod svc;
+pub mod update;
 pub mod versions;
 
 #[cfg(windows)]
@@ -376,6 +377,9 @@ pub fn run() {
             write_store,
             config_write_file,
             config_read_file,
+            update::update_download,
+            update::update_file_size,
+            update::update_install,
             frpc_import::project_import_toml,
             rdp::rdp_policy_get,
             rdp::rdp_policy_set,

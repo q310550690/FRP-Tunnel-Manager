@@ -41,6 +41,14 @@ export interface ExternalFrp {
   source: string;
 }
 
+/** 已下载、等待安装的更新包；落盘后下次启动可以直接安装，不必重新检查 */
+export interface PendingUpdate {
+  version: string;
+  path: string;
+  assetName: string;
+  size: number;
+}
+
 /** 打开设置页时要定位并高亮的分区 */
 export type SettingsFocus = "server" | "frp" | null;
 
@@ -168,6 +176,11 @@ export const useAppStore = defineStore("app", () => {
   const externalScanning = ref(false);
   const externalScanned = ref(false);
 
+  /** 已下载、等待安装的更新包 */
+  const pendingUpdate = ref<PendingUpdate | null>(null);
+  /** store.json 是否已经读取完成（状态栏据此决定何时检查更新） */
+  const loaded = ref(false);
+
   const inTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
 
   interface PersistShape {
@@ -182,6 +195,8 @@ export const useAppStore = defineStore("app", () => {
     theme: ThemeMode;
     /** 是否看过/跳过新手引导 */
     onboarded: boolean;
+    /** 已下载、等待安装的更新包 */
+    pendingUpdate: PendingUpdate | null;
   }
 
   /** 是否已经完成（或跳过）新手引导 */
@@ -194,7 +209,7 @@ export const useAppStore = defineStore("app", () => {
 
   function snapshot(): PersistShape {
     return {
-      version: 2,
+      version: 3,
       projects: projects.value,
       selectedId: selectedId.value,
       server: server.value,
@@ -204,6 +219,7 @@ export const useAppStore = defineStore("app", () => {
       defaultVersion: defaultVersion.value,
       theme: theme.value,
       onboarded: onboarded.value,
+      pendingUpdate: pendingUpdate.value,
     };
   }
 
@@ -286,6 +302,7 @@ export const useAppStore = defineStore("app", () => {
   async function load() {
     if (!inTauri()) {
       guideOpen.value = !onboarded.value;
+      loaded.value = true;
       return;
     }
     try {
@@ -328,12 +345,32 @@ export const useAppStore = defineStore("app", () => {
         if (data.paths) paths.value = { ...paths.value, ...data.paths };
         if (data.defaultVersion) defaultVersion.value = data.defaultVersion;
         if (data.theme) theme.value = data.theme;
+        if (data.pendingUpdate) {
+          const u = data.pendingUpdate as Partial<PendingUpdate>;
+          if (
+            typeof u.version === "string" &&
+            u.version &&
+            typeof u.path === "string" &&
+            u.path &&
+            typeof u.assetName === "string" &&
+            u.assetName &&
+            typeof u.size === "number"
+          ) {
+            pendingUpdate.value = {
+              version: u.version,
+              path: u.path,
+              assetName: u.assetName,
+              size: u.size,
+            };
+          }
+        }
         // v1 存档可能只留下演示项目：清掉后如果什么都没剩，就让新手引导重新出现
         onboarded.value = data.onboarded === true || (legacy && list.length > 0);
       }
     } catch (e) {
       console.warn("读取本地数据失败：", e);
     }
+    loaded.value = true;
     guideOpen.value = !onboarded.value;
     bindEvents();
     await refreshLocalVersions();
@@ -357,9 +394,11 @@ export const useAppStore = defineStore("app", () => {
     }, 300);
   }
 
-  watch([projects, server, globalTransport, network, paths, defaultVersion, theme, onboarded], persist, {
-    deep: true,
-  });
+  watch(
+    [projects, server, globalTransport, network, paths, defaultVersion, theme, onboarded, pendingUpdate],
+    persist,
+    { deep: true },
+  );
 
   const releaseLoading = ref(false);
   const releaseError = ref("");
@@ -587,6 +626,14 @@ export const useAppStore = defineStore("app", () => {
   function closeSettings() {
     settingsOpen.value = false;
     settingsFocus.value = null;
+  }
+
+  function setPendingUpdate(next: PendingUpdate | null) {
+    pendingUpdate.value = next;
+  }
+
+  function clearPendingUpdate() {
+    pendingUpdate.value = null;
   }
 
   // ───────────────────────── 外部 FRP 扫描 ─────────────────────────
@@ -1277,6 +1324,10 @@ export const useAppStore = defineStore("app", () => {
     externalVersions,
     externalScanning,
     externalScanned,
+    pendingUpdate,
+    loaded,
+    setPendingUpdate,
+    clearPendingUpdate,
     hasInstalledFrp,
     isVersionInstalled,
     ensureDefaultVersion,

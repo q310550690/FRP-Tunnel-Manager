@@ -1,6 +1,7 @@
 <script setup lang="ts">
 import { computed } from "vue";
 import { useAppStore, type SettingsFocus } from "@/stores/app";
+import { t } from "@/i18n";
 import AppIcon from "@/components/AppIcon.vue";
 
 const store = useAppStore();
@@ -20,26 +21,26 @@ const doneCount = computed(
 const steps = computed(() => [
   {
     key: "server",
-    title: "配置服务器",
-    desc: "填上 frps 的地址和端口，所有项目默认走这台服务器。",
+    title: t("配置服务器"),
+    desc: t("填上 frps 的地址和端口，所有项目默认走这台服务器。"),
     done: serverDone.value,
-    action: "去配置",
+    action: t("去配置"),
     focus: "server" as SettingsFocus,
   },
   {
     key: "frp",
-    title: "安装 FRP 客户端",
-    desc: "从 GitHub 下载 frpc 到程序目录，或导入本机已有的 frpc，便携存放，不写系统目录。",
+    title: t("安装 FRP 客户端"),
+    desc: t("从 GitHub 下载 frpc 到程序目录，或导入本机已有的 frpc，便携存放，不写系统目录。"),
     done: frpDone.value,
-    action: "去安装",
+    action: t("去安装"),
     focus: "frp" as SettingsFocus,
   },
   {
     key: "project",
-    title: "新建一个项目",
-    desc: "选择模板、填好本地端口，启动后就能从公网访问。",
+    title: t("新建一个项目"),
+    desc: t("选择模板、填好本地端口，启动后就能从公网访问。"),
     done: projectDone.value,
-    action: "新建项目",
+    action: t("新建项目"),
     focus: null,
   },
 ]);
@@ -64,10 +65,10 @@ function finish() {
         </div>
         <div class="head-text">
           <span class="eyebrow mono">GETTING STARTED</span>
-          <h1 id="guide-title">三步把隧道跑起来</h1>
-          <p>FRP Tunnel Manager 把 frpc、配置和日志都放在程序目录里，随拷随用。</p>
+          <h1 id="guide-title">{{ $t("三步把隧道跑起来") }}</h1>
+          <p>{{ $t("FRP Tunnel Manager 把 frpc、配置和日志都放在程序目录里，随拷随用。") }}</p>
         </div>
-        <div class="progress mono" :title="`已完成 ${doneCount} / 3`">
+        <div class="progress mono" :title="$t('已完成 {count} / 3', { count: doneCount })">
           <strong>{{ doneCount }}</strong><span>/ 3</span>
         </div>
       </header>
@@ -81,12 +82,12 @@ function finish() {
           <div class="step-body">
             <div class="step-title">
               {{ step.title }}
-              <span v-if="step.done" class="tag on">已完成</span>
+              <span v-if="step.done" class="tag on">{{ $t("已完成") }}</span>
             </div>
             <p>{{ step.desc }}</p>
           </div>
           <button class="btn" :class="{ accent: !step.done }" @click="act(step)">
-            {{ step.done ? (step.key === "project" ? "再建一个" : "重新设置") : step.action }}
+            {{ step.done ? (step.key === "project" ? $t("再建一个") : $t("重新设置")) : step.action }}
             <AppIcon name="chevron" :size="11" />
           </button>
         </li>
@@ -94,13 +95,13 @@ function finish() {
 
       <footer class="guide-foot">
         <span class="hint">
-          这些设置以后都能在右上角
+          {{ $t("这些设置以后都能在右上角") }}
           <AppIcon name="settings" :size="11" class="inline-ico" />
-          齿轮里修改
+          {{ $t("齿轮里修改") }}
         </span>
         <div class="foot-actions">
-          <button class="btn" @click="finish">跳过引导</button>
-          <button class="btn solid" @click="finish">开始使用</button>
+          <button class="btn" @click="finish">{{ $t("跳过引导") }}</button>
+          <button class="btn solid" @click="finish">{{ $t("开始使用") }}</button>
         </div>
       </footer>
     </div>

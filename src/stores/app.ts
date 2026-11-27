@@ -15,6 +15,7 @@ import { PROJECT_COLORS, TEMPLATE_ICONS } from "@/icons";
 import { invoke } from "@tauri-apps/api/core";
 import { listen } from "@tauri-apps/api/event";
 import { adminPort, buildToml } from "@/utils/toml";
+import { isLocaleCode, locale, setLocale, t } from "@/i18n";
 
 export type FilterKey = "all" | "running" | "stopped" | "error";
 export type ThemeMode = "system" | "dark" | "light";
@@ -197,6 +198,8 @@ export const useAppStore = defineStore("app", () => {
     onboarded: boolean;
     /** 已下载、等待安装的更新包 */
     pendingUpdate: PendingUpdate | null;
+    /** 界面语言 */
+    locale: string;
   }
 
   /** 是否已经完成（或跳过）新手引导 */
@@ -209,7 +212,7 @@ export const useAppStore = defineStore("app", () => {
 
   function snapshot(): PersistShape {
     return {
-      version: 3,
+      version: 4,
       projects: projects.value,
       selectedId: selectedId.value,
       server: server.value,
@@ -220,6 +223,7 @@ export const useAppStore = defineStore("app", () => {
       theme: theme.value,
       onboarded: onboarded.value,
       pendingUpdate: pendingUpdate.value,
+      locale: locale.value,
     };
   }
 
@@ -345,6 +349,7 @@ export const useAppStore = defineStore("app", () => {
         if (data.paths) paths.value = { ...paths.value, ...data.paths };
         if (data.defaultVersion) defaultVersion.value = data.defaultVersion;
         if (data.theme) theme.value = data.theme;
+        if (isLocaleCode(data.locale)) setLocale(data.locale);
         if (data.pendingUpdate) {
           const u = data.pendingUpdate as Partial<PendingUpdate>;
           if (
@@ -395,13 +400,15 @@ export const useAppStore = defineStore("app", () => {
   }
 
   watch(
-    [projects, server, globalTransport, network, paths, defaultVersion, theme, onboarded, pendingUpdate],
+    [projects, server, globalTransport, network, paths, defaultVersion, theme, onboarded, pendingUpdate, locale],
     persist,
     { deep: true },
   );
 
   const releaseLoading = ref(false);
-  const releaseError = ref("");
+  /** 存中文原文作为 key，渲染时翻译，切换语言后提示同步更新 */
+  const releaseErrorKey = ref("");
+  const releaseError = computed(() => (releaseErrorKey.value ? t(releaseErrorKey.value) : ""));
 
   /** GitHub 拉不到时的兜底列表（都是真实发布过的版本） */
   const FALLBACK_RELEASES = [
@@ -457,7 +464,7 @@ export const useAppStore = defineStore("app", () => {
   async function fetchReleases() {
     if (releaseLoading.value) return;
     releaseLoading.value = true;
-    releaseError.value = "";
+    releaseErrorKey.value = "";
     await refreshLocalVersions();
     const installed = new Map(
       versionList.value.filter((v) => v.installed).map((v) => [v.version, v])
@@ -490,7 +497,7 @@ export const useAppStore = defineStore("app", () => {
         .filter((v) => /^\d+\.\d+\.\d+$/.test(v) && cmpVersion(v, "0.52.0") >= 0)
         .map((v) => ({ version: v, installed: installed.has(v), size: installed.get(v)?.size }));
     } catch {
-      releaseError.value = "GitHub 不可达，显示内置版本列表";
+      releaseErrorKey.value = "GitHub 不可达，显示内置版本列表";
     }
     if (list.length === 0) {
       list = FALLBACK_RELEASES.map((v) => ({
@@ -626,6 +633,12 @@ export const useAppStore = defineStore("app", () => {
   function closeSettings() {
     settingsOpen.value = false;
     settingsFocus.value = null;
+  }
+
+  /** 切换界面语言：立即生效，并显式落盘，避免依赖 watch 的时序 */
+  function setAppLocale(code: string) {
+    setLocale(code);
+    persist();
   }
 
   function setPendingUpdate(next: PendingUpdate | null) {
@@ -1339,6 +1352,7 @@ export const useAppStore = defineStore("app", () => {
     markOnboarded,
     openSettings,
     closeSettings,
+    setAppLocale,
     exportConfigJson,
     parseConfigText,
     applyConfigData,

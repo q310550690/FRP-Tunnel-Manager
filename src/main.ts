@@ -6,8 +6,11 @@ import "element-plus/theme-chalk/dark/css-vars.css";
 import "element-plus/es/components/message-box/style/css";
 import "element-plus/es/components/message/style/css";
 import "./styles/tokens.css";
+import { initI18n } from "./i18n";
 
-createApp(App).use(createPinia()).mount("#app");
+const app = createApp(App);
+initI18n(app);
+app.use(createPinia()).mount("#app");
 
 /** 启动层（index.html 内联）最短展示时长：避免应用秒开时闪一下就没 */
 const SPLASH_MIN_VISIBLE_MS = 520;

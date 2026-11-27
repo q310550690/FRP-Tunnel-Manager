@@ -5,6 +5,7 @@ import { useAppStore } from "@/stores/app";
 import type { IconName } from "@/icons";
 import AppIcon from "./AppIcon.vue";
 import LedDot from "./LedDot.vue";
+import { t as translate } from "@/i18n";
 
 const store = useAppStore();
 const emit = defineEmits<{ (e: "refresh"): void; (e: "open-settings"): void }>();
@@ -12,8 +13,8 @@ const emit = defineEmits<{ (e: "refresh"): void; (e: "open-settings"): void }>()
 const themeIcon = computed<IconName>(() =>
   store.theme === "dark" ? "moon" : store.theme === "light" ? "sun" : "system"
 );
-const themeLabel = computed(
-  () => ({ system: "跟随系统", dark: "深色", light: "浅色" } as const)[store.theme]
+const themeLabel = computed(() =>
+  translate(({ system: "跟随系统", dark: "深色", light: "浅色" } as const)[store.theme])
 );
 
 const isTauri = typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -107,7 +108,7 @@ onUnmounted(() => unlisten?.());
       >
         <LedDot state="running" :size="7" :pulse="false" />
         <span class="mono num">{{ store.counts.running }}</span>
-        <span>运行</span>
+        <span>{{ $t("运行") }}</span>
       </button>
       <button
         class="chip"
@@ -116,7 +117,7 @@ onUnmounted(() => unlisten?.());
       >
         <LedDot state="stopped" :size="7" :pulse="false" />
         <span class="mono num">{{ store.counts.stopped }}</span>
-        <span>停止</span>
+        <span>{{ $t("停止") }}</span>
       </button>
       <button
         class="chip"
@@ -125,19 +126,19 @@ onUnmounted(() => unlisten?.());
       >
         <LedDot state="error" :size="7" :pulse="false" />
         <span class="mono num">{{ store.counts.error }}</span>
-        <span>错误</span>
+        <span>{{ $t("错误") }}</span>
       </button>
     </div>
 
-    <div v-if="store.projects.length" class="rack" title="项目状态灯带，点击定位项目">
+    <div v-if="store.projects.length" class="rack" :title="$t('项目状态灯带，点击定位项目')">
       <button
         v-for="p in store.projects"
         :key="p.id"
         type="button"
         class="rack-led"
         :data-state="p.state"
-        :title="p.name"
-        :aria-label="`定位到项目 ${p.name}`"
+        :title="p.proxy.name || p.name"
+        :aria-label="$t('定位到项目 {name}', { name: p.proxy.name || p.name })"
         @click="openProject(p.id)"
       >
         <span class="rack-bar" aria-hidden="true" />
@@ -149,46 +150,46 @@ onUnmounted(() => unlisten?.());
     <button
       class="server"
       :class="{ unset: !store.server.addr }"
-      :title="store.server.addr ? '全局服务器与版本设置' : '还没有配置服务器，点击去设置'"
+      :title="store.server.addr ? $t('全局服务器与版本设置') : $t('还没有配置服务器，点击去设置')"
       @click="emit('open-settings')"
     >
       <LedDot :state="store.server.addr ? 'running' : 'stopped'" :size="7" :pulse="false" />
-      <span class="label">服务器</span>
+      <span class="label">{{ $t("服务器") }}</span>
       <template v-if="store.server.addr">
         <span class="mono addr">{{ store.server.addr }}:{{ store.server.port }}</span>
         <span class="tag">{{ store.server.protocol }}</span>
         <span class="tag">tls</span>
       </template>
       <template v-else>
-        <span class="mono addr">未配置</span>
-        <span class="tag err">去设置</span>
+        <span class="mono addr">{{ $t("未配置") }}</span>
+        <span class="tag err">{{ $t("去设置") }}</span>
       </template>
     </button>
 
-    <button class="btn icon" title="刷新状态" @click="emit('refresh')">
+    <button class="btn icon" :title="$t('刷新状态')" @click="emit('refresh')">
       <AppIcon name="refresh" :size="14" />
     </button>
-    <button class="btn icon" :title="'主题：' + themeLabel" @click="store.cycleTheme()">
+    <button class="btn icon" :title="$t('主题：{name}', { name: themeLabel })" @click="store.cycleTheme()">
       <AppIcon :name="themeIcon" :size="14" />
     </button>
-    <button class="btn icon" title="设置" @click="emit('open-settings')">
+    <button class="btn icon" :title="$t('设置')" @click="emit('open-settings')">
       <AppIcon name="settings" :size="14" />
     </button>
 
     <div class="win-ctl" data-no-drag>
-      <button class="btn icon wbtn" title="最小化" aria-label="最小化" :disabled="!isTauri" @click="minimizeWindow">
+      <button class="btn icon wbtn" :title="$t('最小化')" :aria-label="$t('最小化')" :disabled="!isTauri" @click="minimizeWindow">
         <AppIcon name="minimize" :size="13" />
       </button>
       <button
         class="btn icon wbtn"
-        :title="maximized ? '还原' : '最大化'"
-        :aria-label="maximized ? '还原' : '最大化'"
+        :title="maximized ? $t('还原') : $t('最大化')"
+        :aria-label="maximized ? $t('还原') : $t('最大化')"
         :disabled="!isTauri"
         @click="toggleMaximize"
       >
         <AppIcon :name="maximized ? 'restore' : 'maximize'" :size="12" />
       </button>
-      <button class="btn icon wbtn close" title="关闭" aria-label="关闭" :disabled="!isTauri" @click="closeWindow">
+      <button class="btn icon wbtn close" :title="$t('关闭')" :aria-label="$t('关闭')" :disabled="!isTauri" @click="closeWindow">
         <AppIcon name="close" :size="13" />
       </button>
     </div>

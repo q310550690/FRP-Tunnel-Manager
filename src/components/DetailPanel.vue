@@ -4,7 +4,8 @@ import { ElMessage, ElMessageBox } from "element-plus";
 import type { ScrollbarInstance } from "element-plus";
 import { useAppStore } from "@/stores/app";
 import type { IconName } from "@/icons";
-import type { ServiceState } from "@/types";
+import { t } from "@/i18n";
+import { stateLabel, templateName } from "@/i18n/labels";
 import AppIcon from "./AppIcon.vue";
 import OverviewTab from "./OverviewTab.vue";
 import ConfigTab from "./ConfigTab.vue";
@@ -32,15 +33,6 @@ watch(
   },
 );
 
-const stateText: Record<ServiceState, string> = {
-  running: "运行中",
-  stopped: "已停止",
-  starting: "启动中",
-  stopping: "停止中",
-  error: "错误",
-  "not-installed": "未安装",
-};
-
 const iconName = computed<IconName>(() => (p.value?.icon as IconName) ?? "file");
 const installed = computed(() => !!p.value && p.value.serviceInstalled === true);
 const running = computed(() => p.value?.state === "running" || p.value?.state === "starting");
@@ -56,9 +48,11 @@ async function run(fn: () => Promise<void>, ok: string) {
     if (store.platformInfo.needsAdmin && /管理员/.test(msg)) {
       try {
         await ElMessageBox.confirm(
-          `安装 / 卸载${store.platformInfo.serviceKind}需要管理员权限。是否以管理员身份重新启动本程序？`,
-          "需要管理员权限",
-          { confirmButtonText: "以管理员身份重启", cancelButtonText: "取消", type: "warning" },
+          t("安装 / 卸载{kind}需要管理员权限。是否以管理员身份重新启动本程序？", {
+            kind: store.platformInfo.serviceKind,
+          }),
+          t("需要管理员权限"),
+          { confirmButtonText: t("以管理员身份重启"), cancelButtonText: t("取消"), type: "warning" },
         );
         await store.relaunchElevated();
         return;
@@ -75,7 +69,7 @@ async function run(fn: () => Promise<void>, ok: string) {
 function toggle() {
   if (!p.value) return;
   if (running.value) {
-    void run(() => store.stopProject(p.value!.id), "已停止");
+    void run(() => store.stopProject(p.value!.id), t("已停止"));
     return;
   }
   const miss = missingFrpVersion();
@@ -83,7 +77,7 @@ function toggle() {
     void needFrp(miss);
     return;
   }
-  void run(() => store.startProject(p.value!.id), "已启动，正在连接服务器…");
+  void run(() => store.startProject(p.value!.id), t("已启动，正在连接服务器…"));
 }
 
 function restart() {
@@ -93,13 +87,13 @@ function restart() {
     void needFrp(miss);
     return;
   }
-  void run(() => store.restartProject(p.value!.id), "已重启");
+  void run(() => store.restartProject(p.value!.id), t("已重启"));
 }
 
 function toggleInstall() {
   if (!p.value) return;
   if (installed.value) {
-    void run(() => store.uninstallService(p.value!.id), "服务已卸载");
+    void run(() => store.uninstallService(p.value!.id), t("服务已卸载"));
     return;
   }
   const miss = missingFrpVersion();
@@ -107,7 +101,10 @@ function toggleInstall() {
     void needFrp(miss);
     return;
   }
-  void run(() => store.installService(p.value!.id), `已安装为${store.platformInfo.serviceKind}`);
+  void run(
+    () => store.installService(p.value!.id),
+    t("已安装为{kind}", { kind: store.platformInfo.serviceKind }),
+  );
 }
 
 /** 项目当前版本是否可用；不可用时返回版本号（空串表示完全没装） */
@@ -123,36 +120,38 @@ async function removeProject() {
   const proj = p.value;
   if (!proj) return;
   if (proj.serviceInstalled) {
-    ElMessage.warning("请先卸载服务，再删除项目");
+    ElMessage.warning(t("请先卸载服务，再删除项目"));
     return;
   }
-  const extra = running.value ? "项目正在运行，删除前会先停止。" : "";
+  const message = running.value
+    ? t("删除「{name}」后，本地的 frpc.toml 与运行日志会一并删除，且无法恢复。项目正在运行，删除前会先停止。", {
+        name: proj.proxy.name || proj.name,
+      })
+    : t("删除「{name}」后，本地的 frpc.toml 与运行日志会一并删除，且无法恢复。", { name: proj.proxy.name || proj.name });
   try {
-    await ElMessageBox.confirm(
-      `删除「${proj.name}」后，本地的 frpc.toml 与运行日志会一并删除，且无法恢复。${extra}`,
-      "删除项目",
-      {
-        confirmButtonText: "删除",
-        cancelButtonText: "取消",
-        type: "warning",
-        confirmButtonClass: "el-button--danger",
-      },
-    );
+    await ElMessageBox.confirm(message, t("删除项目"), {
+      confirmButtonText: t("删除"),
+      cancelButtonText: t("取消"),
+      type: "warning",
+      confirmButtonClass: "el-button--danger",
+    });
   } catch {
     return;
   }
   const id = proj.id;
-  await run(() => store.deleteProject(id), "项目已删除");
+  await run(() => store.deleteProject(id), t("项目已删除"));
 }
 
 /** 未安装 frpc 时的统一提示：确认后直接跳到设置页的 FRP 版本区 */
 async function needFrp(version: string) {
   const text = version
-    ? `检测到项目使用的 frp ${version} 尚未安装。请先在「设置 → FRP 版本」里安装一个，再回来启动项目或安装服务。`
-    : "检测到 FRP 未安装，请先安装一个。安装完成后回到这里，就能启动项目或安装服务。";
+    ? t("检测到项目使用的 frp {version} 尚未安装。请先在「设置 → FRP 版本」里安装一个，再回来启动项目或安装服务。", {
+        version,
+      })
+    : t("检测到 FRP 未安装，请先安装一个。安装完成后回到这里，就能启动项目或安装服务。");
   try {
-    await ElMessageBox.alert(text, "需要先安装 FRP 客户端", {
-      confirmButtonText: "去安装",
+    await ElMessageBox.alert(text, t("需要先安装 FRP 客户端"), {
+      confirmButtonText: t("去安装"),
       type: "warning",
     });
   } catch {
@@ -169,34 +168,39 @@ async function needFrp(version: string) {
       <div class="title-row">
         <span class="p-ico"><AppIcon :name="iconName" :size="16" /></span>
         <h1>{{ p.proxy.name || p.name }}</h1>
-        <span class="tag">{{ p.template }}</span>
+        <span class="tag">{{ templateName(p.templateKey, p.template) }}</span>
         <span class="tag" :class="{ on: p.state === 'running', err: p.state === 'error' }">
-          {{ stateText[p.state] }}
+          {{ stateLabel(p.state) }}
         </span>
         <span
           v-if="store.platformInfo.needsAdmin && !store.isAdmin"
           class="tag"
-          title="安装 / 卸载服务需要管理员权限"
-          >非管理员</span
+          :title="$t('安装 / 卸载服务需要管理员权限')"
+          >{{ $t("非管理员") }}</span
         >
-        <span v-if="installed" class="tag on" :title="`由${store.platformInfo.serviceKind}托管运行`">服务</span>
+        <span
+          v-if="installed"
+          class="tag on"
+          :title="$t('由{kind}托管运行', { kind: store.platformInfo.serviceKind })"
+          >{{ $t("服务") }}</span
+        >
       </div>
       <div class="actions">
         <button class="btn" :disabled="busy || installed" @click="toggle">
           <AppIcon :name="running ? 'stop' : 'play'" :size="13" />
-          {{ running ? "停止" : "启动" }}
+          {{ running ? $t("停止") : $t("启动") }}
         </button>
         <button class="btn" :disabled="busy || installed" @click="restart">
           <AppIcon name="restart" :size="13" />
-          重启
+          {{ $t("重启") }}
         </button>
         <button class="btn" :class="installed ? 'danger' : 'accent'" :disabled="busy" @click="toggleInstall">
           <AppIcon :name="installed ? 'uninstall' : 'install'" :size="13" />
-          {{ installed ? "卸载服务" : "安装服务" }}
+          {{ installed ? $t("卸载服务") : $t("安装服务") }}
         </button>
-        <button class="btn danger" :disabled="busy" title="删除项目及本地配置与日志" @click="removeProject">
+        <button class="btn danger" :disabled="busy" :title="$t('删除项目及本地配置与日志')" @click="removeProject">
           <AppIcon name="trash" :size="13" />
-          删除
+          {{ $t("删除") }}
         </button>
       </div>
     </header>
@@ -205,7 +209,7 @@ async function needFrp(version: string) {
     <div class="panels">
       <section class="pane">
         <div class="pane-head">
-          <span class="label">概述</span>
+          <span class="label">{{ $t("概述") }}</span>
           <span class="hint mono">{{ p.proxy.name }}</span>
           <span id="ov-actions" class="pane-actions"></span>
         </div>
@@ -214,7 +218,7 @@ async function needFrp(version: string) {
 
       <section class="pane pane-config">
         <div class="pane-head">
-          <span class="label">配置</span>
+          <span class="label">{{ $t("配置") }}</span>
           <span class="hint mono">frpc.toml</span>
           <span id="cfg-actions" class="pane-actions"></span>
         </div>
@@ -225,16 +229,16 @@ async function needFrp(version: string) {
     <!-- 下：日志占满整行 -->
     <section class="pane logs-pane">
       <div class="pane-head">
-        <span class="label">运行日志</span>
+        <span class="label">{{ $t("运行日志") }}</span>
         <span class="hint mono">./projects/{{ p.id }}/frpc.log</span>
         <span class="pane-actions">
           <button class="btn sm">
             <AppIcon name="trash" :size="12" />
-            清空
+            {{ $t("清空") }}
           </button>
           <button class="btn sm" :class="{ accent: store.logAutoScroll }" @click="store.toggleLogAutoScroll()">
             <AppIcon name="down" :size="12" />
-            自动滚动
+            {{ $t("自动滚动") }}
           </button>
         </span>
       </div>
@@ -246,19 +250,19 @@ async function needFrp(version: string) {
   <section v-else class="detail empty">
     <div class="empty-wrap">
       <div class="empty-ico"><AppIcon :name="store.projects.length ? 'inbox' : 'plus'" :size="24" /></div>
-      <h2>{{ store.projects.length ? "选择一个项目" : "还没有项目" }}</h2>
-      <p v-if="store.projects.length">从左侧列表选择要管理的隧道，或者新建一个项目。</p>
+      <h2>{{ store.projects.length ? $t("选择一个项目") : $t("还没有项目") }}</h2>
+      <p v-if="store.projects.length">{{ $t("从左侧列表选择要管理的隧道，或者新建一个项目。") }}</p>
       <p v-else>
-        先安装 frpc、配置服务器，再新建第一条隧道。frpc、配置与日志都放在程序目录，便携、不写系统目录。
+        {{ $t("先安装 frpc、配置服务器，再新建第一条隧道。frpc、配置与日志都放在程序目录，便携、不写系统目录。") }}
       </p>
       <div class="empty-actions">
         <button class="btn accent" @click="emit('new-project')">
           <AppIcon name="plus" :size="12" />
-          新建项目
+          {{ $t("新建项目") }}
         </button>
         <button class="btn" @click="emit('open-guide')">
           <AppIcon name="bolt" :size="12" />
-          新手引导
+          {{ $t("新手引导") }}
         </button>
       </div>
     </div>

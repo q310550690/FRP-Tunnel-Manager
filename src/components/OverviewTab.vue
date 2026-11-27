@@ -2,6 +2,7 @@
 import { computed } from "vue";
 import { useAppStore } from "@/stores/app";
 import { effectiveServer } from "@/utils/toml";
+import { t as translate } from "@/i18n";
 import AppIcon from "./AppIcon.vue";
 import LedDot from "./LedDot.vue";
 
@@ -14,16 +15,26 @@ const address = computed(() => {
   if (!p.value) return "—";
   const t = p.value.proxy.type;
   if (t === "http" || t === "https") {
-    if (!srv.value.addr) return "未配置服务器";
-    return p.value.proxy.customDomain ? `https://${p.value.proxy.customDomain}` : "未配置域名";
+    if (!srv.value.addr) return translate("未配置服务器");
+    return p.value.proxy.customDomain ? `https://${p.value.proxy.customDomain}` : translate("未配置域名");
   }
-  if (t === "stcp" || t === "xtcp") return "点对点（无需公网端口）";
-  if (!srv.value.addr) return "未配置服务器";
+  if (t === "stcp" || t === "xtcp") return translate("点对点（无需公网端口）");
+  if (!srv.value.addr) return translate("未配置服务器");
   return `${srv.value.addr}:${p.value.proxy.remotePort ?? "—"}`;
 });
 
+/** 地址是否可直接复制：未配置服务器/域名时这里只是提示文字，不写剪贴板 */
+const addressCopyable = computed(() => {
+  const proj = p.value;
+  if (!proj) return false;
+  const type = proj.proxy.type;
+  if (type === "http" || type === "https") return !!srv.value.addr && !!proj.proxy.customDomain;
+  if (type === "stcp" || type === "xtcp") return true;
+  return !!srv.value.addr;
+});
+
 function copy() {
-  if (!address.value || address.value === "—" || address.value.startsWith("未配置")) return;
+  if (!addressCopyable.value) return;
   navigator.clipboard?.writeText(address.value);
 }
 
@@ -33,6 +44,14 @@ const serviceId = computed(() => {
   const prefix = store.platformInfo.labelPrefix;
   return prefix ? `${prefix}${p.value.id}` : p.value.serviceName;
 });
+
+/** 底部托管提示：服务类型与自启动方式都来自平台信息 */
+const hostedHint = computed(() =>
+  translate("隧道由本机 {kind} 托管，{autostart}；异常退出会按 3 秒间隔重试。", {
+    kind: translate(store.platformInfo.serviceKind),
+    autostart: translate(store.platformInfo.autostart),
+  }),
+);
 
 /** 真实事件：取当前项目最近 5 条 frpc 日志 */
 const events = computed(() => {
@@ -51,61 +70,61 @@ const events = computed(() => {
 <template>
   <div v-if="p" class="panel">
     <Teleport to="#ov-actions" defer>
-      <button class="btn sm accent" title="复制连接地址" @click="copy">
+      <button class="btn sm accent" :title="$t('复制连接地址')" @click="copy">
         <AppIcon name="copy" :size="12" />
-        复制连接
+        {{ $t("复制连接") }}
       </button>
     </Teleport>
     <div class="addr-block">
-      <div class="label">连接地址</div>
+      <div class="label">{{ $t("连接地址") }}</div>
       <div class="addr-row">
         <LedDot :state="p.state" :size="8" />
         <span class="addr mono">{{ address }}</span>
       </div>
-      <div class="hint">mstsc / 浏览器 / 客户端都连这里；地址随项目配置实时变化。</div>
+      <div class="hint">{{ $t("mstsc / 浏览器 / 客户端都连这里；地址随项目配置实时变化。") }}</div>
     </div>
 
     <div class="grid">
       <div class="cell">
-        <span class="label">{{ store.platformInfo.serviceIdLabel }}</span>
+        <span class="label">{{ $t(store.platformInfo.serviceIdLabel) }}</span>
         <span class="mono val">{{ serviceId }}</span>
       </div>
       <div class="cell">
-        <span class="label">frp 版本{{ !p.version && store.defaultVersion ? "（全局）" : "" }}</span>
-        <span class="mono val">{{ p.version || store.defaultVersion || "未安装" }}</span>
+        <span class="label">{{ !p.version && store.defaultVersion ? $t("frp 版本（全局）") : $t("frp 版本") }}</span>
+        <span class="mono val">{{ p.version || store.defaultVersion || $t("未安装") }}</span>
       </div>
       <div class="cell">
-        <span class="label">本地监听</span>
+        <span class="label">{{ $t("本地监听") }}</span>
         <span class="mono val">{{ p.proxy.localIP }}:{{ p.proxy.localPort }}</span>
       </div>
       <div class="cell">
-        <span class="label">进程 PID</span>
+        <span class="label">{{ $t("进程 PID") }}</span>
         <span class="mono val">{{ p.pid ?? "—" }}</span>
       </div>
       <div class="cell">
-        <span class="label">运行时长</span>
-        <span class="mono val">{{ p.uptime ?? "—" }}</span>
+        <span class="label">{{ $t("运行时长") }}</span>
+        <span class="mono val">{{ p.uptime ? $t(p.uptime) : "—" }}</span>
       </div>
       <div class="cell">
-        <span class="label">最后修改</span>
-        <span class="mono val">{{ p.updatedAt }}</span>
+        <span class="label">{{ $t("最后修改") }}</span>
+        <span class="mono val">{{ $t(p.updatedAt) }}</span>
       </div>
     </div>
 
     <div class="section">
       <div class="section-head">
-        <span class="label">流量</span>
-        <span class="hint mono">未接入 frp 指标</span>
+        <span class="label">{{ $t("流量") }}</span>
+        <span class="hint mono">{{ $t("未接入 frp 指标") }}</span>
       </div>
       <div class="t-row">
         <AppIcon name="down" :size="12" />
-        <span class="t-name">下行</span>
+        <span class="t-name">{{ $t("下行") }}</span>
         <span class="t-bar"><i style="width: 0" /></span>
         <b class="mono t-val">—</b>
       </div>
       <div class="t-row">
         <AppIcon name="up" :size="12" />
-        <span class="t-name">上行</span>
+        <span class="t-name">{{ $t("上行") }}</span>
         <span class="t-bar"><i style="width: 0" /></span>
         <b class="mono t-val">—</b>
       </div>
@@ -113,22 +132,25 @@ const events = computed(() => {
 
     <div class="section">
       <div class="section-head">
-        <span class="label">隧道细节</span>
+        <span class="label">{{ $t("隧道细节") }}</span>
         <span class="hint mono">{{ p.proxy.name }}</span>
       </div>
       <div class="tunnel-body">
-        <div class="kv"><span>代理类型</span><b class="mono up">{{ p.proxy.type }}</b></div>
-        <div class="kv"><span>公网端口</span><b class="mono">{{ p.proxy.remotePort ?? "—" }}</b></div>
-        <div class="kv"><span>服务器</span><b class="mono">{{ srv.addr ? `${srv.addr}:${srv.port}` : "未配置服务器" }}</b></div>
+        <div class="kv"><span>{{ $t("代理类型") }}</span><b class="mono up">{{ p.proxy.type }}</b></div>
+        <div class="kv"><span>{{ $t("公网端口") }}</span><b class="mono">{{ p.proxy.remotePort ?? "—" }}</b></div>
         <div class="kv">
-          <span>传输</span>
+          <span>{{ $t("服务器") }}</span>
+          <b class="mono">{{ srv.addr ? `${srv.addr}:${srv.port}` : $t("未配置服务器") }}</b>
+        </div>
+        <div class="kv">
+          <span>{{ $t("传输") }}</span>
           <b class="mono">{{ srv.protocol.toUpperCase() }}{{ srv.tls ? " · TLS" : "" }}</b>
         </div>
         <div class="kv">
-          <span>隧道状态</span>
+          <span>{{ $t("隧道状态") }}</span>
           <b :class="{ ok: tunnel === true, bad: tunnel === false }">
             <LedDot :state="tunnel === true ? 'running' : tunnel === false ? 'error' : 'stopped'" :size="8" />
-            {{ tunnel === true ? "已连接" : tunnel === false ? "未连接" : "未知" }}
+            {{ tunnel === true ? $t("已连接") : tunnel === false ? $t("未连接") : $t("未知") }}
           </b>
         </div>
       </div>
@@ -136,10 +158,10 @@ const events = computed(() => {
 
     <div class="section">
       <div class="section-head">
-        <span class="label">最近事件</span>
-        <span class="hint mono">来自 frpc 日志</span>
+        <span class="label">{{ $t("最近事件") }}</span>
+        <span class="hint mono">{{ $t("来自 frpc 日志") }}</span>
       </div>
-      <div v-if="events.length === 0" class="tl-empty muted">暂无事件，启动后这里显示 frpc 的最新日志。</div>
+      <div v-if="events.length === 0" class="tl-empty muted">{{ $t("暂无事件，启动后这里显示 frpc 的最新日志。") }}</div>
       <div v-for="(e, i) in events" :key="i" class="tl-row">
         <span class="tl-time mono">{{ e.t }}</span>
         <span class="tl-led" data-lvl="ok" />
@@ -149,11 +171,12 @@ const events = computed(() => {
 
     <div v-if="p.state === 'error'" class="err-strip">
       <AppIcon name="warn" :size="14" />
-      最近一次启动失败：<span class="mono">port already used</span>（remote_port 6010 已被占用），换一个端口或停止冲突项目后重试。
+      {{ $t("最近一次启动失败：") }}<span class="mono">port already used</span
+      >{{ $t("（remote_port 6010 已被占用），换一个端口或停止冲突项目后重试。") }}
     </div>
     <div v-else class="ok-strip">
       <AppIcon name="shield" :size="14" />
-      隧道由本机 {{ store.platformInfo.serviceKind }} 托管，{{ store.platformInfo.autostart }}；异常退出会按 3 秒间隔重试。
+      {{ hostedHint }}
     </div>
   </div>
 </template>

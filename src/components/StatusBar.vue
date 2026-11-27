@@ -6,6 +6,7 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import { openUrl } from "@tauri-apps/plugin-opener";
 import { ElMessage, ElMessageBox } from "element-plus";
 import { Github } from "lucide-vue-next";
+import { t } from "@/i18n";
 import { useAppStore, type PendingUpdate } from "@/stores/app";
 import AppIcon from "./AppIcon.vue";
 
@@ -42,6 +43,8 @@ const update = ref<ReleaseInfo | null>(null);
 const progress = ref(0);
 /** 下载失败原因（显示在 title / 版本号位置） */
 const downloadError = ref("");
+/** 失败原因是否为「没有适用于当前系统的安装包」：重试时改为打开发布页 */
+const missingAsset = ref(false);
 
 /** 最短转圈时长：请求再快（甚至秒失败）也至少转 0.65s，让点击有可见反馈 */
 const MIN_CHECK_SPIN_MS = 650;
@@ -57,16 +60,21 @@ const busy = computed(
 const hasUpdate = computed(() => update.value !== null || store.pendingUpdate !== null);
 const updateTip = computed(() => {
   if (phase.value === "downloading") {
-    return `正在下载 v${update.value?.version ?? ""}：${progress.value}%`;
+    return t("正在下载 v{version}：{pct}%", {
+      version: update.value?.version ?? "",
+      pct: progress.value,
+    });
   }
   if (phase.value === "ready") {
-    return `v${store.pendingUpdate?.version ?? update.value?.version ?? ""} 已下载，点击「点击安装」完成更新`;
+    return t("v{version} 已下载，点击「点击安装」完成更新", {
+      version: store.pendingUpdate?.version ?? update.value?.version ?? "",
+    });
   }
   if (phase.value === "error") {
-    return downloadError.value || "下载失败，点击重试";
+    return downloadError.value || t("下载失败，点击重试");
   }
-  if (update.value) return `发现新版本 v${update.value.version}，正在准备下载`;
-  return `检查更新（当前 v${appVersion.value}）`;
+  if (update.value) return t("发现新版本 v{version}，正在准备下载", { version: update.value.version });
+  return t("检查更新（当前 v{version}）", { version: appVersion.value });
 });
 
 const inTauri = () => typeof window !== "undefined" && "__TAURI_INTERNALS__" in window;
@@ -133,7 +141,7 @@ async function fetchLatest(): Promise<ReleaseInfo> {
     assets?: Array<{ name?: string; browser_download_url?: string; size?: number }>;
   };
   const version = String(rel.tag_name ?? "").replace(/^v/i, "");
-  if (!version || !rel.html_url) throw new Error("GitHub 返回的 Release 数据不完整");
+  if (!version || !rel.html_url) throw new Error(t("GitHub 返回的 Release 数据不完整"));
   const assets: ReleaseAsset[] = (rel.assets ?? []).flatMap((a) =>
     a.name && a.browser_download_url
       ? [{ name: a.name, url: a.browser_download_url, size: Number(a.size) || 0 }]
@@ -154,13 +162,13 @@ function rawError(e: unknown): string {
 
 function checkError(e: unknown): string {
   const msg = rawError(e);
-  if (/404/.test(msg)) return "GitHub 上还没有发布过版本";
-  if (/403|rate limit/i.test(msg)) return "GitHub API 请求过于频繁，请稍后再试";
-  return `检查更新失败：${msg}`;
+  if (/404/.test(msg)) return t("GitHub 上还没有发布过版本");
+  if (/403|rate limit/i.test(msg)) return t("GitHub API 请求过于频繁，请稍后再试");
+  return t("检查更新失败：{error}", { error: msg });
 }
 
 function downloadErrorText(e: unknown): string {
-  return `下载失败：${rawError(e)}`;
+  return t("下载失败：{error}", { error: rawError(e) });
 }
 
 async function openRelease(url: string) {
@@ -168,7 +176,7 @@ async function openRelease(url: string) {
     if (inTauri()) await openUrl(url);
     else window.open(url, "_blank", "noopener,noreferrer");
   } catch (e) {
-    ElMessage.error(`打开浏览器失败：${rawError(e)}`);
+    ElMessage.error(t("打开浏览器失败：{error}", { error: rawError(e) }));
   }
 }
 
@@ -257,12 +265,16 @@ async function initUpdate() {
 async function startDownload(info: ReleaseInfo, silent: boolean) {
   const asset = assetFor(info);
   if (!asset) {
-    downloadError.value = "没有找到适用于当前系统的安装包";
+    missingAsset.value = true;
+    downloadError.value = t("没有找到适用于当前系统的安装包");
     phase.value = "error";
-    if (!silent) ElMessage.warning(`${downloadError.value}，可点击版本号打开发布页手动下载`);
+    if (!silent) {
+      ElMessage.warning(t("没有找到适用于当前系统的安装包，可点击版本号打开发布页手动下载"));
+    }
     return;
   }
 
+  missingAsset.value = false;
   phase.value = "downloading";
   progress.value = 0;
   downloadError.value = "";
@@ -282,17 +294,18 @@ async function startDownload(info: ReleaseInfo, silent: boolean) {
     });
     progress.value = 100;
     phase.value = "ready";
-    ElMessage.success(`v${info.version} 已下载，点击「点击安装」完成更新`);
+    ElMessage.success(t("v{version} 已下载，点击「点击安装」完成更新", { version: info.version }));
   } catch (e) {
+    missingAsset.value = false;
     downloadError.value = downloadErrorText(e);
     phase.value = "error";
-    if (!silent) ElMessage.error(`${downloadError.value}，可点击版本号重试`);
+    if (!silent) ElMessage.error(t("下载失败：{error}，可点击版本号重试", { error: rawError(e) }));
   }
 }
 
 async function checkUpdate(manual: boolean) {
   if (store.pendingUpdate || phase.value === "ready") {
-    if (manual) ElMessage.info("安装包已经下载好了，点击「点击安装」即可");
+    if (manual) ElMessage.info(t("安装包已经下载好了，点击「点击安装」即可"));
     return;
   }
   if (busy.value) return;
@@ -316,12 +329,12 @@ async function checkUpdate(manual: boolean) {
         await startDownload(latest, !manual);
       } else {
         phase.value = "idle";
-        if (manual) ElMessage.info(`发现新版本 v${latest.version}，请到发布页下载`);
+        if (manual) ElMessage.info(t("发现新版本 v{version}，请到发布页下载", { version: latest.version }));
       }
     } else {
       update.value = null;
       phase.value = "idle";
-      if (manual) ElMessage.success(`已是最新版本 v${appVersion.value}`);
+      if (manual) ElMessage.success(t("已是最新版本 v{version}", { version: appVersion.value }));
     }
   } catch (e) {
     phase.value = "idle";
@@ -336,9 +349,11 @@ async function installUpdate() {
   if (!pending) return;
   try {
     await ElMessageBox.confirm(
-      `安装包 v${pending.version} 已下载完成。点击「安装」会启动安装程序，当前应用将退出。`,
-      "安装更新",
-      { confirmButtonText: "安装", cancelButtonText: "稍后", type: "info" }
+      t("安装包 v{version} 已下载完成。点击「安装」会启动安装程序，当前应用将退出。", {
+        version: pending.version,
+      }),
+      t("安装更新"),
+      { confirmButtonText: t("安装"), cancelButtonText: t("稍后"), type: "info" }
     );
   } catch {
     return;
@@ -348,13 +363,13 @@ async function installUpdate() {
     const kind = await invoke<string>("update_install", { path: pending.path });
     if (kind === "opened") {
       phase.value = "ready";
-      ElMessage.info("已打开安装包，请按系统提示完成安装");
+      ElMessage.info(t("已打开安装包，请按系统提示完成安装"));
     } else {
-      ElMessage.success("正在启动安装程序，应用即将退出…");
+      ElMessage.success(t("正在启动安装程序，应用即将退出…"));
     }
   } catch (e) {
     phase.value = "ready";
-    ElMessage.error(`启动安装程序失败：${rawError(e)}`);
+    ElMessage.error(t("启动安装程序失败：{error}", { error: rawError(e) }));
   }
 }
 
@@ -363,7 +378,7 @@ function retryDownload() {
     void checkUpdate(true);
     return;
   }
-  if (downloadError.value.includes("没有找到适用于当前系统")) {
+  if (missingAsset.value) {
     void openRelease(update.value.url);
     return;
   }
@@ -397,7 +412,7 @@ function stamp() {
   <footer class="statusbar">
     <span class="item">
       <AppIcon name="layers" :size="11" />
-      <span class="label">项目</span>
+      <span class="label">{{ $t("项目") }}</span>
       <span class="mono">{{ store.projects.length }}</span>
     </span>
     <span class="sep" />
@@ -407,19 +422,19 @@ function stamp() {
     </span>
     <span class="sep" />
     <span class="item">
-      <span class="label">全局默认 FRP 版本</span>
-      <span class="mono">{{ store.defaultVersion || (store.hasInstalledFrp ? "未设置" : "未安装") }}</span>
+      <span class="label">{{ $t("全局默认 FRP 版本") }}</span>
+      <span class="mono">{{ store.defaultVersion || (store.hasInstalledFrp ? $t("未设置") : $t("未安装")) }}</span>
     </span>
     <span class="sep" />
     <span class="item">
-      <span class="label">配置</span>
+      <span class="label">{{ $t("配置") }}</span>
       <span class="mono">config/store.json</span>
     </span>
 
     <span class="flex" />
 
     <span class="item muted">
-      <span class="mono">最后刷新 {{ stamp() }}</span>
+      <span class="mono">{{ $t("最后刷新") }} {{ stamp() }}</span>
     </span>
     <span class="sep" />
     <span class="item muted version-item">
@@ -429,18 +444,19 @@ function stamp() {
         <AppIcon name="refresh" :size="11" />
         <span v-if="hasUpdate" class="dot" />
       </button>
-      <span class="label">版本</span>
+      <span class="label">{{ $t("版本") }}</span>
       <button v-if="phase === 'ready'" type="button" class="version-action"
-        :title="`安装 v${store.pendingUpdate?.version ?? ''}`" @click="installUpdate">
-        点击安装
+        :title="$t('安装 v{version}', { version: store.pendingUpdate?.version ?? '' })"
+        @click="installUpdate">
+        {{ $t("点击安装") }}
       </button>
       <button v-else-if="phase === 'downloading'" type="button" class="version-action downloading" :title="updateTip"
         disabled>
-        下载 {{ progress }}%
+        {{ $t("下载 {pct}%", { pct: progress }) }}
       </button>
       <button v-else-if="phase === 'error'" type="button" class="version-action error" :title="downloadError"
         @click="retryDownload">
-        重试下载
+        {{ $t("重试下载") }}
       </button>
       <span v-else class="mono">v{{ appVersion }}</span>
       <span v-if="phase === 'downloading'" class="version-progress">
@@ -449,7 +465,8 @@ function stamp() {
     </span>
     <span class="sep" />
     <span class="item muted version-item">
-      <button type="button" class="github" title="打开 GitHub 仓库" aria-label="打开 GitHub 仓库" @click="openRepo">
+      <button type="button" class="github" :title="$t('打开 GitHub 仓库')" :aria-label="$t('打开 GitHub 仓库')"
+        @click="openRepo">
         <Github :size="11" :stroke-width="1.7" />
       </button>
     </span>

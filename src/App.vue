@@ -8,6 +8,7 @@ import StatusBar from "@/components/StatusBar.vue";
 import NewProjectDialog from "@/components/NewProjectDialog.vue";
 import SettingsDialog from "@/components/SettingsDialog.vue";
 import OnboardingGuide from "@/components/OnboardingGuide.vue";
+import { elementLocale } from "@/i18n";
 
 const store = useAppStore();
 const showNew = ref(false);
@@ -39,22 +40,24 @@ function refresh() {
 </script>
 
 <template>
-  <div class="app">
-    <TopBar @refresh="refresh" @open-settings="store.openSettings()" />
-    <div class="main">
-      <ProjectRail @new-project="showNew = true" @open-guide="store.openGuide()" />
-      <DetailPanel @new-project="showNew = true" @open-guide="store.openGuide()" />
+  <el-config-provider :locale="elementLocale">
+    <div class="app">
+      <TopBar @refresh="refresh" @open-settings="store.openSettings()" />
+      <div class="main">
+        <ProjectRail @new-project="showNew = true" @open-guide="store.openGuide()" />
+        <DetailPanel @new-project="showNew = true" @open-guide="store.openGuide()" />
+      </div>
+      <StatusBar />
+      <OnboardingGuide
+        v-if="store.guideOpen"
+        @close="store.dismissGuide()"
+        @open-settings="(focus) => store.openSettings(focus)"
+        @new-project="showNew = true"
+      />
+      <NewProjectDialog v-model="showNew" />
+      <SettingsDialog v-model="store.settingsOpen" :focus="store.settingsFocus" />
     </div>
-    <StatusBar />
-    <OnboardingGuide
-      v-if="store.guideOpen"
-      @close="store.dismissGuide()"
-      @open-settings="(focus) => store.openSettings(focus)"
-      @new-project="showNew = true"
-    />
-    <NewProjectDialog v-model="showNew" />
-    <SettingsDialog v-model="store.settingsOpen" :focus="store.settingsFocus" />
-  </div>
+  </el-config-provider>
 </template>
 
 <style scoped>

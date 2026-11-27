@@ -5,6 +5,8 @@ import { ElMessage } from "element-plus";
 import { PROJECT_COLORS, TEMPLATE_ICONS } from "@/icons";
 import AppIcon from "./AppIcon.vue";
 import { useAppStore } from "@/stores/app";
+import { t as translate } from "@/i18n";
+import { templateName, templateSummary } from "@/i18n/labels";
 
 const props = defineProps<{ modelValue: boolean }>();
 const emit = defineEmits<{ (e: "update:modelValue", v: boolean): void }>();
@@ -34,14 +36,18 @@ function create() {
     icon: TEMPLATE_ICONS[t.key] ?? "file",
     color: PROJECT_COLORS[store.projects.length % PROJECT_COLORS.length],
     proxy: { name: `${t.key}-${seq}`, ...JSON.parse(JSON.stringify(t.defaults)) },
-    serviceName: `FRP Tunnel · ${t.name}`,
+    serviceName: `FRP Tunnel · ${templateName(t.key, t.name)}`,
     version: store.defaultVersion || store.versions[0] || "",
     state: "stopped",
     updatedAt: "刚刚",
   });
   store.select(id);
   store.markOnboarded();
-  ElMessage({ message: `已创建「${t.name}」，可在配置页调整专属字段`, type: "success", duration: 2200 });
+  ElMessage({
+    message: translate("已创建「{name}」，可在配置页调整专属字段", { name: templateName(t.key, t.name) }),
+    type: "success",
+    duration: 2200,
+  });
   close();
 }
 
@@ -49,7 +55,7 @@ function create() {
 async function importProject() {
   if (importing.value) return;
   if (typeof window === "undefined" || !("__TAURI_INTERNALS__" in window)) {
-    ElMessage.warning("浏览器预览无法选择本机文件，请在桌面应用中使用");
+    ElMessage.warning(translate("浏览器预览无法选择本机文件，请在桌面应用中使用"));
     return;
   }
   importing.value = true;
@@ -58,26 +64,37 @@ async function importProject() {
     const selected = await open({
       multiple: false,
       directory: false,
-      title: "选择 frpc.toml",
-      filters: [{ name: "frpc 配置", extensions: ["toml"] }],
+      title: translate("选择 frpc.toml"),
+      filters: [{ name: translate("frpc 配置"), extensions: ["toml"] }],
     });
     if (!selected || Array.isArray(selected)) return;
     const r = await store.importFrpcToml(selected);
     if (!r.ok) {
-      ElMessage.error({ message: `导入失败：${r.reason}`, duration: 6000, showClose: true });
+      ElMessage.error({
+        message: translate("导入失败：{reason}", { reason: r.reason ?? translate("未知错误") }),
+        duration: 6000,
+        showClose: true,
+      });
       return;
     }
     const summary =
-      r.count === 1 ? `已导入「${r.names?.[0] ?? "项目"}」` : `已导入 ${r.count} 个项目`;
-    const warning = r.warnings?.length ? `；${r.warnings.join("；")}` : "";
+      r.count === 1
+        ? translate("已导入「{name}」", { name: r.names?.[0] ?? translate("项目") })
+        : translate("已导入 {count} 个项目", { count: r.count ?? 0 });
+    const warnings = (r.warnings ?? []).join("；");
+    const message = warnings ? translate("{summary}；{warnings}", { summary, warnings }) : summary;
     ElMessage.success({
-      message: summary + warning,
-      duration: warning ? 6000 : 2400,
-      showClose: warning.length > 0,
+      message,
+      duration: warnings ? 6000 : 2400,
+      showClose: warnings.length > 0,
     });
     close();
   } catch (e) {
-    ElMessage.error({ message: `导入失败：${String(e)}`, duration: 6000, showClose: true });
+    ElMessage.error({
+      message: translate("导入失败：{reason}", { reason: String(e) }),
+      duration: 6000,
+      showClose: true,
+    });
   } finally {
     importing.value = false;
   }
@@ -96,8 +113,8 @@ async function importProject() {
     <template #header>
       <div class="dlg-head">
         <div class="head-text">
-          <div class="dlg-title">新建项目</div>
-          <div class="dlg-sub">选一个模板，字段和默认端口已经替你填好，之后随时可改。</div>
+          <div class="dlg-title">{{ $t("新建项目") }}</div>
+          <div class="dlg-sub">{{ $t("选一个模板，字段和默认端口已经替你填好，之后随时可改。") }}</div>
         </div>
         <button class="btn icon" @click="close">
           <AppIcon name="close" :size="13" />
@@ -107,7 +124,7 @@ async function importProject() {
 
     <div v-if="!store.hasInstalledFrp" class="np-note">
       <AppIcon name="warn" :size="13" />
-      <span>还没有安装 FRP 客户端。项目可以先创建，稍后到「设置 → FRP 版本」安装一个，再回来安装服务。</span>
+      <span>{{ $t("还没有安装 FRP 客户端。项目可以先创建，稍后到「设置 → FRP 版本」安装一个，再回来安装服务。") }}</span>
     </div>
 
     <div class="tpl-grid">
@@ -121,10 +138,10 @@ async function importProject() {
       >
         <div class="tpl-top">
           <span class="tpl-ico"><AppIcon :name="TEMPLATE_ICONS[t.key]" :size="16" /></span>
-          <span class="tpl-name">{{ t.name }}</span>
+          <span class="tpl-name">{{ templateName(t.key, t.name) }}</span>
           <span class="tag">{{ t.type }}</span>
         </div>
-        <div class="tpl-desc">{{ t.summary }}</div>
+        <div class="tpl-desc">{{ templateSummary(t) }}</div>
         <div class="tpl-def mono">
           127.0.0.1:{{ t.defaults.localPort }}
           <template v-if="t.defaults.remotePort"> → {{ t.defaults.remotePort }}</template>
@@ -135,13 +152,13 @@ async function importProject() {
 
     <template #footer>
       <div class="dlg-foot">
-        <span class="hint">{{ picked ? "已选择模板" : "请选择一个模板" }}</span>
+        <span class="hint">{{ picked ? $t("已选择模板") : $t("请选择一个模板") }}</span>
         <div class="btns">
-          <button class="btn" @click="close">取消</button>
+          <button class="btn" @click="close">{{ $t("取消") }}</button>
           <button class="btn" :disabled="importing" @click="importProject">
-            <AppIcon name="up" :size="12" />{{ importing ? "导入中…" : "导入项目" }}
+            <AppIcon name="up" :size="12" />{{ importing ? $t("导入中…") : $t("导入项目") }}
           </button>
-          <button class="btn accent" :disabled="!picked" @click="create">创建项目</button>
+          <button class="btn accent" :disabled="!picked" @click="create">{{ $t("创建项目") }}</button>
         </div>
       </div>
     </template>

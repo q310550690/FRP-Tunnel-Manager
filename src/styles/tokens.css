@@ -49,7 +49,8 @@
   --w-rail: 264px;
   --w-runtime: 300px;
 
-  --font-sans: Inter, "Segoe UI", "Microsoft YaHei UI", system-ui, sans-serif;
+  /* 中文优先 Noto Sans SC（系统已装时），比雅黑在 125% 缩放下更均匀；未安装回退雅黑 */
+  --font-sans: Inter, "Segoe UI", "Noto Sans SC", "Source Han Sans SC", "Microsoft YaHei UI", "Microsoft YaHei", "PingFang SC", "Hiragino Sans GB", system-ui, sans-serif;
   --font-mono: "JetBrains Mono", "Cascadia Code", Consolas, monospace;
 
   /* ---- 字号只有五档：10 / 11.5 / 13 / 15 / 19 ---- */
@@ -58,6 +59,17 @@
   --fs-3: 13px;
   --fs-4: 15px;
   --fs-5: 19px;
+}
+
+/* 语言切换后按 :lang() 选用对应字形的字体，避免日文/韩文/繁体中文落到简体字形 */
+html:lang(zh-TW) {
+  --font-sans: Inter, "Segoe UI", "Microsoft JhengHei UI", "Microsoft JhengHei", "Noto Sans TC", "PingFang TC", system-ui, sans-serif;
+}
+html:lang(ja) {
+  --font-sans: Inter, "Segoe UI", "Yu Gothic UI", "Yu Gothic", Meiryo, "Noto Sans JP", "Hiragino Kaku Gothic ProN", system-ui, sans-serif;
+}
+html:lang(ko) {
+  --font-sans: Inter, "Segoe UI", "Malgun Gothic", "Noto Sans KR", "Apple SD Gothic Neo", system-ui, sans-serif;
 }
 
 html[data-theme="light"] {

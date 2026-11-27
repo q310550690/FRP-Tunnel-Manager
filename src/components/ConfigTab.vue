@@ -13,6 +13,15 @@ import {
 import { TEMPLATE_ICONS } from "@/icons";
 import { optimsFor, type OptimItem } from "@/optimizations";
 import { isTauri, rdpGet, rdpSet } from "@/services/rdp";
+import { t } from "@/i18n";
+import {
+  fieldHint,
+  fieldLabel,
+  fieldPlaceholder,
+  optimHint,
+  optimLabel,
+  templateName,
+} from "@/i18n/labels";
 import { ElMessage } from "element-plus";
 import AppIcon from "./AppIcon.vue";
 
@@ -99,12 +108,18 @@ async function toggleRdp(o: OptimItem, on: boolean) {
     if (isTauri) await rdpSet(o.key, want);
     rdpValues[o.key] = want ?? 0;
     ElMessage({
-      message: on ? `已写入：${o.label}` : `已恢复「未配置」：${o.label}`,
+      message: on
+        ? t("已写入：{name}", { name: optimLabel(o) })
+        : t("已恢复「未配置」：{name}", { name: optimLabel(o) }),
       type: "success",
       duration: 1600,
     });
   } catch (e) {
-    ElMessage({ message: `写入注册表失败：${String(e)}（需要以管理员身份运行）`, type: "error", duration: 4000 });
+    ElMessage({
+      message: t("写入注册表失败：{error}（需要以管理员身份运行）", { error: String(e) }),
+      type: "error",
+      duration: 4000,
+    });
   }
 }
 
@@ -135,8 +150,9 @@ watch(optims, () => { void loadRdp(); }, { immediate: true });
 const toml = computed(() => {
   const s = effectiveServer.value;
   const auth = s.authMethod === "token" && s.token ? ["", "[auth]", 'method = "token"', `token = "${s.token}"`] : [];
+  const tplLabel = templateName(tmpl.value?.key, project.value?.template);
   const lines = [
-    `# ${project.value?.name} · 由模板「${project.value?.template}」生成`,
+    `# ${project.value?.name} · ${t("由模板「{name}」生成", { name: tplLabel })}`,
     "",
     `serverAddr = "${s.addr}"`,
     `serverPort = ${s.port}`,
@@ -195,41 +211,49 @@ function save() {
   const next: Record<string, boolean | number> = {};
   for (const o of osOptims.value) next[o.key] = rdpValues[o.key] ? true : false;
   p.optim = next;
-  ElMessage({ message: "已保存，重启服务后生效", type: "success", duration: 2000 });
+  ElMessage({ message: t("已保存，重启服务后生效"), type: "success", duration: 2000 });
 }
 </script>
 
 <template>
   <div class="panel">
     <Teleport to="#cfg-actions" defer>
-      <button class="btn sm" @click="reset"><AppIcon name="restart" :size="12" />还原</button>
-      <button class="btn sm accent" @click="save"><AppIcon name="ok" :size="12" />保存配置</button>
+      <button class="btn sm" @click="reset"><AppIcon name="restart" :size="12" />{{ $t("还原") }}</button>
+      <button class="btn sm accent" @click="save"><AppIcon name="ok" :size="12" />{{ $t("保存配置") }}</button>
     </Teleport>
 
     <div class="section">
       <div class="section-head">
-        <span class="label">项目</span>
+        <span class="label">{{ $t("项目") }}</span>
       </div>
       <div class="rows">
         <div class="row">
-          <label>项目名称</label>
+          <label>{{ $t("项目名称") }}</label>
           <div class="ctl"><el-input v-model="form.name" size="small" /></div>
         </div>
         <div class="row">
-          <label>类型</label>
+          <label>{{ $t("类型") }}</label>
           <div class="ctl">
-            <el-select v-model="projectTemplateKey" size="small" placeholder="选择项目类型">
-              <el-option v-for="t in TEMPLATES" :key="t.key" :label="t.name" :value="t.key" />
+            <el-select v-model="projectTemplateKey" size="small" :placeholder="$t('选择项目类型')">
+              <el-option v-for="t in TEMPLATES" :key="t.key" :label="templateName(t.key)" :value="t.key" />
             </el-select>
           </div>
         </div>
         <div class="row">
-          <label>frp 版本</label>
+          <label>{{ $t("frp 版本") }}</label>
           <div class="ctl">
-            <el-select v-model="form.version" size="small" :placeholder="store.defaultVersion ? `跟随全局 ${store.defaultVersion}` : '未安装'">
+            <el-select
+              v-model="form.version"
+              size="small"
+              :placeholder="
+                store.defaultVersion
+                  ? $t('跟随全局 {version}', { version: store.defaultVersion })
+                  : $t('未安装')
+              "
+            >
               <el-option v-for="v in versionOptions" :key="v" :label="v" :value="v" />
             </el-select>
-            <span class="hint">默认跟随全局 {{ store.defaultVersion || "未安装" }}，项目内可单独指定</span>
+            <span class="hint">{{ $t("默认跟随全局 {version}，项目内可单独指定", { version: store.defaultVersion || $t("未安装") }) }}</span>
           </div>
         </div>
       </div>
@@ -237,32 +261,36 @@ function save() {
 
     <div class="section">
       <div class="section-head">
-        <span class="label">服务器</span>
+        <span class="label">{{ $t("服务器") }}</span>
         <span class="hint mono">
-          {{ useOwnServer ? "项目独立配置" : `跟随全局 ${store.server.addr}:${store.server.port}` }}
+          {{
+            useOwnServer
+              ? $t("项目独立配置")
+              : $t("跟随全局 {addr}:{port}", { addr: store.server.addr, port: store.server.port })
+          }}
         </span>
       </div>
       <div class="rows">
         <div class="row">
-          <label>独立配置</label>
+          <label>{{ $t("独立配置") }}</label>
           <div class="ctl">
             <el-switch v-model="useOwnServer" size="small" />
-            <span class="hint">关闭时使用设置页里的全局服务器；打开后可让这个项目连另一台 frps。</span>
+            <span class="hint">{{ $t("关闭时使用设置页里的全局服务器；打开后可让这个项目连另一台 frps。") }}</span>
           </div>
         </div>
         <template v-if="useOwnServer">
           <div class="row">
-            <label>服务器地址</label>
-            <div class="ctl"><el-input v-model="srv.addr" size="small" placeholder="例如 203.0.113.10" /></div>
+            <label>{{ $t("服务器地址") }}</label>
+            <div class="ctl"><el-input v-model="srv.addr" size="small" :placeholder="$t('例如 203.0.113.10')" /></div>
           </div>
           <div class="row">
-            <label>服务器端口</label>
+            <label>{{ $t("服务器端口") }}</label>
             <div class="ctl">
               <el-input-number v-model="srv.port" :min="1" :max="65535" size="small" controls-position="right" />
             </div>
           </div>
           <div class="row">
-            <label>传输协议</label>
+            <label>{{ $t("传输协议") }}</label>
             <div class="ctl">
               <el-select v-model="srv.protocol" size="small">
                 <el-option label="KCP" value="kcp" />
@@ -276,15 +304,15 @@ function save() {
             <label>TLS</label>
             <div class="ctl">
               <el-switch v-model="srv.tls" size="small" />
-              <span class="hint">公网建议开启，需与 frps 的 transport.tls 保持一致。</span>
+              <span class="hint">{{ $t("公网建议开启，需与 frps 的 transport.tls 保持一致。") }}</span>
             </div>
           </div>
           <div class="row">
-            <label>认证方式</label>
+            <label>{{ $t("认证方式") }}</label>
             <div class="ctl">
               <el-select v-model="srv.authMethod" size="small">
                 <el-option label="Token" value="token" />
-                <el-option label="不认证" value="none" />
+                <el-option :label="$t('不认证')" value="none" />
               </el-select>
             </div>
           </div>
@@ -292,7 +320,7 @@ function save() {
             <label>Token</label>
             <div class="ctl">
               <el-input v-model="srv.token" type="password" show-password size="small" />
-              <span class="hint">需与 frps 的 auth.token 一致。</span>
+              <span class="hint">{{ $t("需与 frps 的 auth.token 一致。") }}</span>
             </div>
           </div>
         </template>
@@ -301,11 +329,11 @@ function save() {
 
     <div class="section">
       <div class="section-head">
-        <span class="label">映射</span>
+        <span class="label">{{ $t("映射") }}</span>
       </div>
       <div class="rows">
         <div class="row">
-          <label>代理类型</label>
+          <label>{{ $t("代理类型") }}</label>
           <div class="ctl">
             <el-select v-model="form.type" size="small">
               <el-option label="TCP" value="tcp" />
@@ -317,23 +345,23 @@ function save() {
           </div>
         </div>
         <div class="row">
-          <label>本地地址</label>
+          <label>{{ $t("本地地址") }}</label>
           <div class="ctl">
             <el-input v-model="form.localIP" size="small" />
-            <span class="hint">被穿透服务在本机监听的地址，通常是 127.0.0.1</span>
+            <span class="hint">{{ $t("被穿透服务在本机监听的地址，通常是 127.0.0.1") }}</span>
           </div>
         </div>
         <div class="row">
-          <label>本地端口</label>
+          <label>{{ $t("本地端口") }}</label>
           <div class="ctl">
             <el-input-number v-model="form.localPort" :min="1" :max="65535" size="small" controls-position="right" />
           </div>
         </div>
         <div v-if="showRemote" class="row">
-          <label>公网端口</label>
+          <label>{{ $t("公网端口") }}</label>
           <div class="ctl">
             <el-input-number v-model="form.remotePort" :min="1" :max="65535" size="small" controls-position="right" />
-            <span class="hint">服务器上暴露的端口，外部用「服务器地址:该端口」访问</span>
+            <span class="hint">{{ $t("服务器上暴露的端口，外部用「服务器地址:该端口」访问") }}</span>
           </div>
         </div>
       </div>
@@ -341,22 +369,30 @@ function save() {
 
     <div class="section">
       <div class="section-head">
-        <span class="label">传输优化</span>
+        <span class="label">{{ $t("传输优化") }}</span>
         <span class="hint mono">
-          {{ useOwnTransport ? "项目独立配置" : `跟随全局 tcpMux ${store.globalTransport.tcpMux ? "开" : "关"} · 池 ${store.globalTransport.poolCount} · 心跳 ${store.globalTransport.heartbeatInterval}s` }}
+          {{
+            useOwnTransport
+              ? $t("项目独立配置")
+              : $t("跟随全局 tcpMux {state} · 池 {pool} · 心跳 {interval}s", {
+                  state: store.globalTransport.tcpMux ? $t("开") : $t("关"),
+                  pool: store.globalTransport.poolCount,
+                  interval: store.globalTransport.heartbeatInterval,
+                })
+          }}
         </span>
       </div>
       <div class="rows">
         <div class="row">
-          <label>独立配置</label>
+          <label>{{ $t("独立配置") }}</label>
           <div class="ctl">
             <el-switch v-model="useOwnTransport" size="small" />
-            <span class="hint">关闭时使用设置页里的全局传输参数；打开后可单独调整这个项目。</span>
+            <span class="hint">{{ $t("关闭时使用设置页里的全局传输参数；打开后可单独调整这个项目。") }}</span>
           </div>
         </div>
         <template v-if="useOwnTransport">
           <div v-for="o in optims.filter((x) => x.group === 'frp')" :key="o.key" class="row">
-            <label>{{ o.label }}</label>
+            <label>{{ optimLabel(o) }}</label>
             <div class="ctl">
               <el-switch v-if="o.kind === 'bool'" v-model="(transport as any)[o.key]" size="small" />
               <el-input-number
@@ -367,7 +403,7 @@ function save() {
                 size="small"
                 controls-position="right"
               />
-              <span class="hint">{{ o.hint }}</span>
+              <span class="hint">{{ optimHint(o) }}</span>
             </div>
           </div>
         </template>
@@ -376,13 +412,13 @@ function save() {
 
     <div v-if="fields.length || osOptims.length" class="section">
       <div class="section-head">
-        <span class="label">专属配置</span>
-        <span class="hint mono">{{ tmpl?.name }} · {{ tmpl?.type }}</span>
+        <span class="label">{{ $t("专属配置") }}</span>
+        <span class="hint mono">{{ templateName(tmpl?.key, tmpl?.name) }} · {{ tmpl?.type }}</span>
       </div>
       <div class="rows">
         <template v-if="fields.length">
           <div v-for="f in fields" :key="f.key" class="row">
-            <label>{{ f.label }}</label>
+            <label>{{ fieldLabel(f) }}</label>
             <div class="ctl">
               <el-input-number
                 v-if="f.kind === 'number'"
@@ -398,19 +434,19 @@ function save() {
                 size="small"
                 :type="f.kind === 'password' ? 'password' : 'text'"
                 :show-password="f.kind === 'password'"
-                :placeholder="f.placeholder"
+                :placeholder="fieldPlaceholder(f)"
               />
-              <span v-if="f.hint" class="hint">{{ f.hint }}</span>
+              <span v-if="f.hint" class="hint">{{ fieldHint(f) }}</span>
             </div>
           </div>
         </template>
         <template v-if="osSupported && osOptims.length">
-          <div class="group-label os">系统与策略（写入注册表，需要管理员权限）</div>
+          <div class="group-label os">{{ $t("系统与策略（写入注册表，需要管理员权限）") }}</div>
           <div v-for="o in osOptims" :key="o.key" class="row">
-            <label>{{ o.label }}</label>
+            <label>{{ optimLabel(o) }}</label>
             <div class="ctl">
               <el-switch :model-value="!!rdpValues[o.key]" size="small" @change="(v: any) => toggleRdp(o, !!v)" />
-              <span class="hint">{{ o.hint }}</span>
+              <span class="hint">{{ optimHint(o) }}</span>
             </div>
           </div>
         </template>
@@ -419,7 +455,7 @@ function save() {
 
     <div class="section">
       <div class="section-head">
-        <span class="label">生成的 frpc.toml</span>
+        <span class="label">{{ $t("生成的 frpc.toml") }}</span>
         <span class="hint mono">./projects/{{ project?.id }}/frpc.toml</span>
       </div>
       <pre class="mono preview-code">{{ toml }}</pre>

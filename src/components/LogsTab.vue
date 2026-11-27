@@ -19,7 +19,7 @@ function cls(line: string) {
       <span class="no mono">{{ String(i + 1).padStart(2, "0") }}</span>
       <span class="text mono">{{ l }}</span>
     </div>
-    <div v-if="lines.length === 0" class="empty">暂无日志</div>
+    <div v-if="lines.length === 0" class="empty">{{ $t("暂无日志") }}</div>
   </div>
 </template>
 

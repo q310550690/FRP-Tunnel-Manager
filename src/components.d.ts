@@ -14,6 +14,7 @@ declare module 'vue' {
     AppIcon: typeof import('./components/AppIcon.vue')['default']
     ConfigTab: typeof import('./components/ConfigTab.vue')['default']
     DetailPanel: typeof import('./components/DetailPanel.vue')['default']
+    ElConfigProvider: typeof import('element-plus/es')['ElConfigProvider']
     ElDialog: typeof import('element-plus/es')['ElDialog']
     ElInput: typeof import('element-plus/es')['ElInput']
     ElInputNumber: typeof import('element-plus/es')['ElInputNumber']

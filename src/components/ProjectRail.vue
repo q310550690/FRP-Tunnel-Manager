@@ -6,22 +6,15 @@ import type { IconName } from "@/icons";
 import { PROJECT_COLORS } from "@/icons";
 import AppIcon from "./AppIcon.vue";
 import LedDot from "./LedDot.vue";
-import type { Project, ServiceState } from "@/types";
+import { t } from "@/i18n";
+import { stateLabel, templateName } from "@/i18n/labels";
+import type { Project } from "@/types";
 
 const store = useAppStore();
 const emit = defineEmits<{
   (e: "new-project"): void;
   (e: "open-guide"): void;
 }>();
-
-const stateText: Record<ServiceState, string> = {
-  running: "运行中",
-  stopped: "已停止",
-  starting: "启动中",
-  stopping: "停止中",
-  error: "错误",
-  "not-installed": "未安装",
-};
 
 function iconOf(p: Project): IconName {
   return (p.icon as IconName) ?? "file";
@@ -34,11 +27,11 @@ function colorOf(p: Project, index: number): string {
 function endpoint(p: Project) {
   const addr = effectiveServer(p, store.server).addr;
   if (p.proxy.type === "http" || p.proxy.type === "https") {
-    if (!addr) return "未配置服务器";
-    return p.proxy.customDomain || "未配置域名";
+    if (!addr) return t("未配置服务器");
+    return p.proxy.customDomain || t("未配置域名");
   }
-  if (!addr) return "未配置服务器";
-  return p.proxy.remotePort ? `${addr}:${p.proxy.remotePort}` : "无公网端口";
+  if (!addr) return t("未配置服务器");
+  return p.proxy.remotePort ? `${addr}:${p.proxy.remotePort}` : t("无公网端口");
 }
 
 const list = computed(() => store.filtered);
@@ -49,12 +42,12 @@ const list = computed(() => store.filtered);
     <div class="rail-head">
       <label class="search">
         <AppIcon name="search" :size="12" />
-        <input v-model="store.query" type="text" placeholder="搜索项目、模板或端口" spellcheck="false" />
-        <button v-if="store.query" class="clear" title="清空" @click="store.query = ''">
+        <input v-model="store.query" type="text" :placeholder="$t('搜索项目、模板或端口')" spellcheck="false" />
+        <button v-if="store.query" class="clear" :title="$t('清空')" @click="store.query = ''">
           <AppIcon name="close" :size="11" />
         </button>
       </label>
-      <button class="btn icon solid" title="新建项目" @click="emit('new-project')">
+      <button class="btn icon solid" :title="$t('新建项目')" @click="emit('new-project')">
         <AppIcon name="plus" :size="16" />
       </button>
     </div>
@@ -75,11 +68,13 @@ const list = computed(() => store.filtered);
             <span class="name">{{ p.proxy.name || p.name }}</span>
             <span class="state">
               <LedDot :state="p.state" :size="6" :pulse="false" />
-              {{ stateText[p.state] }}
+              {{ stateLabel(p.state) }}
             </span>
           </div>
           <div class="line-2">
-            <span class="kind mono" :title="p.template">{{ p.template }}</span>
+            <span class="kind mono" :title="templateName(p.templateKey, p.template)">{{
+              templateName(p.templateKey, p.template)
+            }}</span>
             <span class="sep">·</span>
             <span class="proto mono">{{ p.proxy.type }}</span>
             <span class="sep">·</span>
@@ -90,17 +85,17 @@ const list = computed(() => store.filtered);
 
       <div v-if="list.length === 0" class="empty">
         <AppIcon :name="store.projects.length === 0 && !store.query ? 'plus' : 'inbox'" :size="18" />
-        <span v-if="store.query">没有匹配「{{ store.query }}」的项目</span>
-        <span v-else-if="store.projects.length === 0">还没有项目，先创建第一条隧道</span>
-        <span v-else>该状态下没有项目</span>
+        <span v-if="store.query">{{ $t("没有匹配「{query}」的项目", { query: store.query }) }}</span>
+        <span v-else-if="store.projects.length === 0">{{ $t("还没有项目，先创建第一条隧道") }}</span>
+        <span v-else>{{ $t("该状态下没有项目") }}</span>
         <div v-if="store.projects.length === 0 && !store.query" class="empty-actions">
           <button class="btn sm accent" @click="emit('new-project')">
             <AppIcon name="plus" :size="11" />
-            新建项目
+            {{ $t("新建项目") }}
           </button>
           <button class="btn sm" @click="emit('open-guide')">
             <AppIcon name="bolt" :size="11" />
-            新手引导
+            {{ $t("新手引导") }}
           </button>
         </div>
       </div>
